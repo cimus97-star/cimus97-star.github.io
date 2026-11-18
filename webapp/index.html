@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>설비 이상 및 생산 현황 대시보드</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Malgun Gothic", sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 12px; }
+    .app-container { max-width: 1200px; margin: 0 auto; }
+    .header-bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: center; background: #1e293b; padding: 12px 20px; border-radius: 8px; margin-bottom: 12px; border: 1px solid #334155; }
+    h1 { font-size: 18px; margin: 0; color: #f8fafc; font-weight: 700; }
+    .hdr-r { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .src { display: inline-flex; border: 1px solid #334155; border-radius: 6px; overflow: hidden; }
+    .src button { background: transparent; color: #94a3b8; border: 0; padding: 7px 11px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .src button[aria-pressed="true"] { background: #334155; color: #f8fafc; }
+    .demo { font-size: 11px; color: #fbbf24; border: 1px solid #78350f; background: #451a03; padding: 3px 8px; border-radius: 4px; }
+    .open-modal-btn { background: #3b82f6; color: #fff; border: none; padding: 8px 14px; font-size: 13px; font-weight: 700; border-radius: 6px; cursor: pointer; }
+    .open-modal-btn:hover { background: #2563eb; }
+    .dashboard-grid { display: grid; grid-template-columns: 280px 1fr 300px; gap: 12px; }
+    @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
+    .panel { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 14px; display: flex; flex-direction: column; min-height: 520px; min-width: 0; }
+    .panel-title { font-size: 14px; font-weight: 700; color: #94a3b8; margin-bottom: 10px; border-bottom: 1px solid #334155; padding-bottom: 6px; }
+    .equipment-status-list { overflow-y: auto; flex: 1; max-height: 470px; }
+    .eq-item { background: #0f172a; border-left: 4px solid #10b981; padding: 8px 10px; border-radius: 4px; margin-bottom: 8px; font-size: 12px; }
+    .eq-item.warning { border-left-color: #f59e0b; }
+    .eq-item.danger { border-left-color: #ef4444; }
+    .eq-name { font-weight: 700; color: #f8fafc; margin-bottom: 2px; }
+    .eq-sub { color: #94a3b8; }
+    .factory-map { background: #0f172a; border: 1px dashed #475569; border-radius: 6px; padding: 10px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .map-zone { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 10px; display: flex; flex-direction: column; gap: 8px; justify-content: space-between; min-height: 110px; }
+    .map-zone.stop { border-color: #ef4444; }
+    .zone-header { font-size: 12px; font-weight: bold; color: #cbd5e1; }
+    .zone-meta { font-size: 11px; color: #94a3b8; }
+    .zone-status { font-size: 11px; padding: 3px 6px; border-radius: 4px; text-align: center; font-weight: bold; }
+    .status-run { background: #065f46; color: #6ee7b7; }
+    .status-stop { background: #991b1b; color: #fca5a5; }
+    .history { margin-top: 10px; flex: 1; overflow: auto; max-height: 230px; }
+    .history table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    .history th { text-align: left; color: #94a3b8; font-weight: 600; padding: 5px 6px; border-bottom: 1px solid #334155; position: sticky; top: 0; background: #1e293b; }
+    .history td { padding: 5px 6px; border-bottom: 1px solid #1f2a3c; color: #cbd5e1; }
+    .history td.unres { color: #fca5a5; font-weight: 700; }
+    .metrics-container { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
+    .metric-card { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 10px; text-align: center; }
+    .metric-card.oee { border-color: #38bdf8; }
+    .metric-label { font-size: 11px; color: #94a3b8; font-weight: 600; margin-bottom: 4px; }
+    .metric-value { font-size: 18px; font-weight: 800; color: #38bdf8; font-variant-numeric: tabular-nums; }
+    .metric-value.alert-val { color: #f87171; }
+    .metric-sub { font-size: 10.5px; color: #64748b; margin-top: 3px; }
+    .oee-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); justify-content: center; align-items: center; z-index: 1000; padding: 16px; }
+    .modal-content { background: #1e293b; width: 100%; max-width: 360px; border-radius: 12px; padding: 20px; max-height: 90vh; overflow-y: auto; border: 1px solid #334155; color: #f8fafc; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+    .modal-header h3 { font-size: 15px; margin: 0; }
+    .close-btn { background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; }
+    .form-group { margin-bottom: 10px; }
+    label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: #cbd5e1; }
+    input, select, textarea { width: 100%; padding: 8px; font-size: 13px; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: #f8fafc; }
+    textarea { resize: vertical; height: 50px; }
+    button.submit-btn { width: 100%; padding: 11px; font-size: 14px; font-weight: 700; color: #fff; background: #3b82f6; border: none; border-radius: 6px; cursor: pointer; margin-top: 10px; }
+    #alertBox { display: none; margin-top: 10px; padding: 8px; border-radius: 6px; font-size: 12px; text-align: center; font-weight: bold; }
+    #alertBox.error { background: #7f1d1d; color: #fca5a5; }
+    #alertBox.success { background: #065f46; color: #6ee7b7; }
+    .muted { color: #64748b; font-size: 12px; text-align: center; padding: 20px; }
+  </style>
+</head>
+<body>
+  <div class="app-container">
+    <div class="header-bar">
+      <h1>🏭 스마트 생산기술 관제 대시보드</h1>
+      <div class="hdr-r">
+        <span class="demo" id="demoTag" hidden>데모 모드 · 예시 데이터</span>
+        <div class="src" role="group" aria-label="데이터 출처">
+          <button type="button" data-src="field" aria-pressed="true">현장 이력</button>
+          <button type="button" data-src="game" aria-pressed="false">게임 로그</button>
+        </div>
+        <button class="open-modal-btn" onclick="openModal()">+ 이상·비가동 이력 입력</button>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <div class="panel">
+        <div class="panel-title">⚡ 설비별 실시간 상태</div>
+        <div class="equipment-status-list" id="eqStatusList"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">🗺️ 공장 도면 및 라인 운영 현황</div>
+        <div class="factory-map" id="factoryMap"></div>
+        <div class="history"><table><thead><tr><th>날짜</th><th>설비</th><th>사유</th><th>비가동</th><th>상태</th></tr></thead><tbody id="histBody"></tbody></table></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">📊 생산 실적 및 지표</div>
+        <div class="metrics-container">
+          <div class="metric-card oee">
+            <div class="metric-label">OEE (설비종합효율)</div>
+            <div class="metric-value" id="mOee">–</div>
+            <div class="metric-sub" id="mOeeSub">가용률 × 성능 × 품질</div>
+          </div>
+          <div class="oee-row">
+            <div class="metric-card"><div class="metric-label">가용률</div><div class="metric-value" id="mA">–</div></div>
+            <div class="metric-card"><div class="metric-label">성능</div><div class="metric-value" id="mP">–</div></div>
+            <div class="metric-card"><div class="metric-label">품질</div><div class="metric-value" id="mQ">–</div></div>
+          </div>
+          <div class="metric-card"><div class="metric-label">총 생산 / 재작업</div><div class="metric-value" id="mProd">–</div><div class="metric-sub" id="mProdSub"></div></div>
+          <div class="metric-card"><div class="metric-label">총 비가동 시간</div><div class="metric-value alert-val" id="mTotalDowntime">0분</div><div class="metric-sub" id="mDownSub"></div></div>
+          <div class="metric-card"><div class="metric-label">미해결 이력</div><div class="metric-value alert-val" id="mUnres">0건</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="inputModal" class="modal-overlay">
+    <div class="modal-content">
+      <div class="modal-header"><h3>설비 이상·비가동 이력 입력</h3><button class="close-btn" onclick="closeModal()" aria-label="닫기">&times;</button></div>
+      <form id="downtimeForm">
+        <div class="form-group"><label for="date">발생 날짜 *</label><input type="date" id="date" required></div>
+        <div class="form-group"><label for="equipmentNo">설비 번호 *</label><input type="text" id="equipmentNo" placeholder="예: LINE-01-PR02" required list="eqList"><datalist id="eqList"></datalist></div>
+        <div class="form-group"><label for="stopReason">정지 사유 *</label>
+          <select id="stopReason" required><option value="">선택하세요</option><option>설비고장</option><option>자재대기</option><option>금형·공구교체</option><option>품질이상</option><option>기타</option></select></div>
+        <div class="form-group"><label for="errorCode">이상 증상·에러코드 *</label><input type="text" id="errorCode" placeholder="예: ERR-402" required></div>
+        <div class="form-group"><label for="actionContent">조치 내용</label><textarea id="actionContent" placeholder="조치 내용 입력"></textarea></div>
+        <div class="form-group"><label for="downtime">비가동 시간(분)</label><input type="number" id="downtime" min="0" placeholder="숫자만 입력"></div>
+        <div class="form-group"><label for="status">처리 상태 *</label>
+          <select id="status" required><option value="">선택하세요</option><option>해결</option><option>미해결</option></select></div>
+        <button type="submit" id="submitBtn" class="submit-btn">저장하기</button>
+      </form>
+      <div id="alertBox"></div>
+    </div>
+  </div>
+
+  <script>
+    /* 라인 번호 → 공정 이름. 게임의 4개 공장과 같은 순서 */
+    var LINES = { 'LINE-01': '프레스', 'LINE-02': '차체(용접로봇)', 'LINE-03': '도장(컨베이어)', 'LINE-04': '의장(조립)' };
+    var CONFIG = { PLANNED_MIN_PER_DAY: 480, IDEAL_CYCLE_MIN: 6.4 };
+    var source = 'field';
+    var isGas = typeof google !== 'undefined' && google.script && google.script.run;
+
+    /* ---- 데모 모드: Apps Script 밖(GitHub Pages)에서 열면 예시 데이터와 게임 로그로 돈다 ---- */
+    var DEMO = {
+      field: [
+        ['2026-11-16', 'LINE-01-PR02', '금형·공구교체', 'DIE-CHG', '금형 교환', 35, '해결'],
+        ['2026-11-16', 'LINE-02-CW01', '설비고장', 'ERR-402', '용접 팁 교환', 18, '해결'],
+        ['2026-11-17', 'LINE-03-HD02', '자재대기', 'MAT-01', '도료 보충', 12, '해결'],
+        ['2026-11-17', 'LINE-04-AS01', '품질이상', 'TQ-ALM', '체결 토크 재설정', 22, '해결'],
+        ['2026-11-18', 'LINE-02-CW01', '설비고장', 'ERR-417', '로봇 원점 재설정 중', 40, '미해결']
+      ],
+      prod: { count: 3 * 4 * 68, good: 3 * 4 * 63, days: 3, lines: 4 }
+    };
+    var demoSaved = [];
+    function demoItems() {
+      var rows = [];
+      if (source === 'game') {
+        try {   // 포트폴리오 페이지가 같은 사이트 안에 저장해 둔 게임 비가동 이력(CSV)
+          var csv = localStorage.getItem('twin-log') || '';
+          csv.split('\n').slice(1).forEach(function (line) { var c = line.split(','); if (c.length >= 7) rows.push([c[0], c[1], c[2], c[3], c[4], Number(c[5]) || 0, c[6]]); });
+        } catch (e) {}
+      } else rows = DEMO.field.concat(demoSaved);
+      return rows.map(function (r) { return { date: r[0], equipmentNo: String(r[1]).toUpperCase(), stopReason: r[2], errorCode: r[3], actionContent: r[4], downtime: Number(r[5]) || 0, status: r[6] }; });
+    }
+    // Code.gs의 computeStats와 같은 식
+    function computeStats(items, prod) {
+      var lineOf = function (eq) { var m = /^(LINE-\d+)/.exec(eq); return m ? m[1] : eq; };
+      var days = {}, lines = {}, byLine = {}, total = 0, unresolved = 0;
+      items.forEach(function (it) { days[String(it.date).split(' ')[0]] = 1; var L = lineOf(it.equipmentNo); lines[L] = 1; byLine[L] = (byLine[L] || 0) + it.downtime; total += it.downtime; if (it.status === '미해결') unresolved++; });
+      var planned = Object.keys(days).length * Object.keys(lines).length * CONFIG.PLANNED_MIN_PER_DAY;
+      var A = planned ? Math.max(0, 1 - total / planned) : null, P = null, Q = null, oee = null;
+      if (prod) { var run = prod.days * prod.lines * CONFIG.PLANNED_MIN_PER_DAY * (A == null ? 1 : A); P = Math.min(1, prod.count * CONFIG.IDEAL_CYCLE_MIN / run); Q = prod.good / prod.count; oee = A * P * Q; }
+      var r1 = function (v) { return v == null ? null : Math.round(v * 1000) / 10; };
+      return { totalCount: items.length, unresolvedCount: unresolved, totalDowntime: total, plannedMin: planned, lines: Object.keys(lines).sort(), downtimeByLine: byLine,
+        availability: r1(A), performance: r1(P), quality: r1(Q), oee: r1(oee), prodCount: prod ? prod.count : null, reworkCount: prod ? prod.count - prod.good : null };
+    }
+    var api = {
+      load: function (cb) {
+        if (isGas) return google.script.run.withSuccessHandler(cb).getDashboardData(source === 'game' ? '[게임로그]' : '[생산기술]');
+        var items = demoItems(); cb({ stats: computeStats(items, source === 'field' ? DEMO.prod : null), items: items.slice().reverse() });
+      },
+      save: function (data, ok, fail) {
+        if (isGas) return google.script.run.withSuccessHandler(ok).withFailureHandler(fail).saveData(data);
+        demoSaved.push([data.date, data.equipmentNo, data.stopReason, data.errorCode, data.actionContent, data.downtime, data.status]);
+        ok({ success: true, message: data.date + ' (' + data.equipmentNo + ') 이력이 저장되었습니다. (데모: 새로고침하면 사라집니다)' });
+      }
+    };
+    if (!isGas) document.getElementById('demoTag').hidden = false;
+
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function pctTxt(v) { return v == null ? '–' : v + '%'; }
+    document.getElementById('date').valueAsDate = new Date();
+    function openModal() { document.getElementById('inputModal').style.display = 'flex'; document.getElementById('alertBox').style.display = 'none'; }
+    function closeModal() { document.getElementById('inputModal').style.display = 'none'; initDashboard(); }
+
+    function initDashboard() {
+      api.load(function (res) {
+        var s = res.stats, items = res.items;
+        document.getElementById('mOee').textContent = pctTxt(s.oee);
+        document.getElementById('mOeeSub').textContent = s.oee == null ? (source === 'game' ? '게임 로그는 비가동만 담아 가용률만 계산합니다' : '[생산실적] 탭을 연결하면 계산됩니다') : '가용률 × 성능 × 품질';
+        document.getElementById('mA').textContent = pctTxt(s.availability);
+        document.getElementById('mP').textContent = pctTxt(s.performance);
+        document.getElementById('mQ').textContent = pctTxt(s.quality);
+        document.getElementById('mProd').textContent = s.prodCount == null ? '–' : s.prodCount + ' / ' + s.reworkCount + ' 대';
+        document.getElementById('mProdSub').textContent = s.prodCount == null ? '생산실적 데이터 없음' : '생산 / 재작업(불량)';
+        document.getElementById('mTotalDowntime').textContent = s.totalDowntime + '분';
+        document.getElementById('mDownSub').textContent = s.plannedMin ? '계획 가동 ' + s.plannedMin.toLocaleString() + '분 중' : '';
+        document.getElementById('mUnres').textContent = s.unresolvedCount + '건';
+
+        // 설비 목록: 고정 배열이 아니라 들어온 이력에서 만든다. 가장 최근 상태가 미해결이면 정지
+        var eqs = {};
+        items.forEach(function (it) { if (!eqs[it.equipmentNo]) eqs[it.equipmentNo] = { open: null, count: 0, down: 0 }; var e = eqs[it.equipmentNo]; e.count++; e.down += it.downtime; if (it.status === '미해결' && !e.open) e.open = it; });
+        var names = Object.keys(eqs).sort();
+        document.getElementById('eqList').innerHTML = names.map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
+        document.getElementById('eqStatusList').innerHTML = names.length ? names.map(function (n) {
+          var e = eqs[n], cls = e.open ? 'danger' : '';
+          return '<div class="eq-item ' + cls + '"><div class="eq-name">' + esc(n) + '</div><div>' + (e.open ? '긴급 정지 (' + esc(e.open.errorCode) + ')' : '정상 가동 중') + '</div><div class="eq-sub">이력 ' + e.count + '건 · 비가동 ' + e.down + '분</div></div>';
+        }).join('') : '<div class="muted">등록된 설비 이력이 없습니다.</div>';
+
+        // 도면: 라인별로 미해결 이력이 있으면 정지
+        document.getElementById('factoryMap').innerHTML = Object.keys(LINES).map(function (L) {
+          var open = items.filter(function (it) { return it.equipmentNo.indexOf(L) === 0 && it.status === '미해결'; }), down = (s.downtimeByLine && s.downtimeByLine[L]) || 0;
+          return '<div class="map-zone ' + (open.length ? 'stop' : '') + '"><div class="zone-header">' + L + ' (' + LINES[L] + ')</div><div class="zone-meta">누적 비가동 ' + down + '분</div><div class="zone-status ' + (open.length ? 'status-stop">비가동 (STOP) · ' + esc(open[0].errorCode) : 'status-run">가동 중 (RUN)') + '</div></div>';
+        }).join('');
+
+        document.getElementById('histBody').innerHTML = items.slice(0, 50).map(function (it) {
+          return '<tr><td>' + esc(it.date) + '</td><td>' + esc(it.equipmentNo) + '</td><td>' + esc(it.stopReason) + '</td><td>' + it.downtime + '분</td><td class="' + (it.status === '미해결' ? 'unres' : '') + '">' + esc(it.status) + '</td></tr>';
+        }).join('') || '<tr><td colspan="5" class="muted">' + (source === 'game' ? '게임 로그가 없습니다. 포트폴리오 페이지에서 게임을 진행하면 여기에 쌓입니다.' : '이력이 없습니다.') + '</td></tr>';
+      });
+    }
+
+    document.querySelector('.src').addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return; source = b.dataset.src;
+      document.querySelectorAll('.src button').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
+      initDashboard();
+    });
+
+    document.getElementById('downtimeForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var btn = document.getElementById('submitBtn'), alertBox = document.getElementById('alertBox');
+      var v = function (id) { return document.getElementById(id).value.trim(); };
+      var formData = { date: v('date'), equipmentNo: v('equipmentNo').toUpperCase(), stopReason: v('stopReason'), errorCode: v('errorCode'), actionContent: v('actionContent'), downtime: Number(v('downtime')) || 0, status: v('status') };
+      btn.disabled = true; btn.textContent = '저장 중...';
+      var done = function (res) {
+        btn.disabled = false; btn.textContent = '저장하기';
+        alertBox.className = res.success ? 'success' : 'error'; alertBox.textContent = res.message; alertBox.style.display = 'block';
+        if (res.success) { document.getElementById('downtimeForm').reset(); document.getElementById('date').valueAsDate = new Date(); setTimeout(closeModal, 1200); }
+      };
+      api.save(formData, done, function (err) { done({ success: false, message: '오류 발생: ' + err.message }); });
+    });
+
+    initDashboard();
+  </script>
+</body>
+</html>

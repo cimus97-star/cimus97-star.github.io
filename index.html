@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>울산공장 디지털 섀도우</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="시뮬레이션 게임 속 자동차 공장을 실시간 대시보드로 읽고, 같은 규칙의 모델로 버퍼·보전 정책을 실험한 생산관리 포트폴리오">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* 레이아웃: 위에서 아래로 공정 흐름처럼 읽힌다. 문제 → 가상 공장(라이브) → 실험 → 검증 → 다음 단계.
+   상징 요소는 안돈 보드(현장 전광판). 어느 테마에서도 어두운 판에 호박색 숫자로 둔다. */
+:root {
+  --bg: #EDF0F2; --surface: #FFFFFF; --surface2: #F5F7F8; --ink: #121D27; --muted: #566472; --line: #D2D9DF;
+  --navy: #1D3C63; --on-navy: #F2F6FA; --amber: #D98E00; --ok: #17895A; --warn: #B87503; --bad: #C93A34;
+  --s-game: #93A0AC; --s-real: #1D3C63; --s-alt: #D98E00;
+  --board: #10181F; --board-line: #26323D; --board-ink: #DCE4EA; --board-dim: #7D8C99; --board-amber: #FFB81C; --board-ok: #35C285; --board-bad: #F0625B; --board-warn: #F0A92B;
+  --f-body: "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0D141A; --surface: #141E27; --surface2: #1A2632; --ink: #E3E9EE; --muted: #8E9DAB; --line: #283643;
+  --navy: #7DB3EC; --on-navy: #08121C; --amber: #FFB81C; --ok: #35C285; --warn: #F0A92B; --bad: #F0625B;
+  --s-game: #64737F; --s-real: #7DB3EC; --s-alt: #FFB81C; --board: #0A1015; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0D141A; --surface: #141E27; --surface2: #1A2632; --ink: #E3E9EE; --muted: #8E9DAB; --line: #283643;
+  --navy: #7DB3EC; --on-navy: #08121C; --amber: #FFB81C; --ok: #35C285; --warn: #F0A92B; --bad: #F0625B;
+  --s-game: #64737F; --s-real: #7DB3EC; --s-alt: #FFB81C; --board: #0A1015; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { animation: none !important; transition: none !important; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.65 var(--f-body); word-break: keep-all; overflow-wrap: anywhere; }
+h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; padding: 0; }
+ul, ol { list-style: none; }
+a { color: var(--navy); text-underline-offset: 3px; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.num, .mono { font-family: var(--f-data); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+section { padding-block: 56px; border-top: 1px solid var(--line); }
+.eyebrow { font: 600 12px/1.4 var(--f-data); letter-spacing: .08em; color: var(--muted); text-transform: uppercase; }
+h2 { font-size: clamp(22px, 3vw, 28px); line-height: 1.3; font-weight: 700; text-wrap: balance; letter-spacing: -.01em; }
+h3 { font-size: 17px; line-height: 1.4; font-weight: 700; }
+.lead { color: var(--muted); max-width: 64ch; }
+.sec-head { display: grid; gap: 10px; margin-bottom: 28px; }
+
+/* 헤더 */
+.top { padding-block: 18px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.top .who { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.top .who b { font-size: 17px; }
+.top .who span { color: var(--muted); font-size: 13px; }
+.top nav { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 14px; }
+.top nav a { color: var(--ink); text-decoration: none; }
+.top nav a:hover { color: var(--navy); text-decoration: underline; }
+
+/* 히어로 */
+.hero { padding-block: 40px 56px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 40px; align-items: end; }
+.hero h1 { font-size: clamp(28px, 4.4vw, 46px); line-height: 1.22; font-weight: 700; letter-spacing: -.02em; text-wrap: balance; }
+.hero h1 em { font-style: normal; color: var(--navy); }
+.hero p { margin-top: 18px; color: var(--muted); max-width: 52ch; font-size: 16px; }
+.hero .cta { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 10px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 14px; cursor: pointer; }
+.btn:hover { border-color: var(--navy); }
+.btn.pri { background: var(--navy); border-color: var(--navy); color: var(--on-navy); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.sm { padding: 6px 11px; font-size: 13px; }
+
+.board { background: var(--board); color: var(--board-ink); border-radius: var(--r); border: 1px solid var(--board-line); }
+.hero-board { padding: 18px; display: grid; gap: 14px; }
+.hero-board .cap { font: 600 11px/1 var(--f-data); letter-spacing: .1em; color: var(--board-dim); display: flex; justify-content: space-between; }
+.hero-board .cap i { width: 8px; height: 8px; border-radius: 50%; background: var(--board-ok); display: inline-block; margin-right: 6px; }
+.tiles3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--board-line); border: 1px solid var(--board-line); border-radius: 8px; overflow: hidden; }
+.tiles3 > div { background: var(--board); padding: 14px 12px; display: grid; gap: 4px; align-content: start; }
+.tiles3 b { font: 600 clamp(24px, 3.2vw, 34px)/1 var(--f-data); color: var(--board-amber); font-variant-numeric: tabular-nums; }
+.tiles3 b small { font-size: .5em; color: var(--board-dim); margin-left: 2px; }
+.tiles3 span { font-size: 12px; color: var(--board-ink); line-height: 1.4; }
+.tiles3 em { font-style: normal; font-size: 11px; color: var(--board-dim); line-height: 1.4; }
+
+/* 흐름도 */
+.flow { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; }
+.flow svg { display: block; min-width: 760px; width: 100%; height: auto; }
+.flow .box { fill: var(--surface2); stroke: var(--line); }
+.flow .box.key { stroke: var(--navy); stroke-width: 1.5; }
+.flow .t1 { fill: var(--ink); font: 700 14px var(--f-body); }
+.flow .t2 { fill: var(--muted); font: 400 12px var(--f-body); }
+.flow .t3 { fill: var(--navy); font: 600 11px var(--f-data); }
+.flow .ar { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.flow .ar.next { stroke-dasharray: 5 4; }
+.flow .ah { fill: var(--muted); }
+.cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.cols3 > div { display: grid; gap: 6px; align-content: start; }
+.cols3 p { color: var(--muted); font-size: 14px; }
+
+/* 라이브 트윈 */
+.game-shell { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.game-bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.conn { display: inline-flex; gap: 8px; align-items: center; color: var(--muted); }
+.lamp { width: 9px; height: 9px; border-radius: 50%; background: var(--s-game); flex: none; display: inline-block; }
+.lamp.live, .lamp.ok { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
+.lamp.warn { background: var(--warn); } .lamp.bad { background: var(--bad); }
+.game-shell iframe { display: block; width: 100%; height: 800px; border: 0; background: var(--bg); }
+@media (max-width: 700px) { .game-shell iframe { height: 680px; } }
+
+.twin { margin-top: 16px; display: grid; gap: 1px; background: var(--board-line); border-radius: var(--r); overflow: hidden; border: 1px solid var(--board-line); }
+.twin > * { background: var(--board); }
+.twin-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding: 12px 16px; font: 600 12px/1.4 var(--f-data); letter-spacing: .06em; color: var(--board-dim); }
+.twin-head b { color: var(--board-ink); }
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--board-line); }
+.kpis > div { background: var(--board); padding: 14px 14px 12px; display: grid; gap: 2px; }
+.kpis span { font-size: 12px; color: var(--board-dim); }
+.kpis b { font: 600 26px/1.15 var(--f-data); color: var(--board-amber); font-variant-numeric: tabular-nums; }
+.kpis b small { font-size: 13px; color: var(--board-dim); margin-left: 2px; }
+.kpis em { font: 500 11px/1.3 var(--f-data); font-style: normal; color: var(--board-dim); }
+.kpis .oee b { color: #FFFFFF; }
+.kpis .low b { color: var(--board-bad); }
+.lineview { padding: 18px 16px; overflow-x: auto; }
+.lanes { display: flex; align-items: stretch; min-width: 700px; }
+.shop { flex: 1 1 0; border: 1px solid var(--board-line); border-radius: 8px; padding: 12px; display: grid; gap: 6px; min-width: 0; }
+.shop.bad { border-color: var(--board-bad); background: color-mix(in srgb, var(--board-bad) 10%, var(--board)); }
+.shop.warn { border-color: color-mix(in srgb, var(--board-warn) 60%, var(--board-line)); }
+.shop b { font-size: 15px; color: var(--board-ink); display: flex; align-items: center; gap: 8px; }
+.shop .st { font-size: 13px; color: var(--board-ink); }
+.shop .st.bad { color: var(--board-bad); } .shop .st.warn { color: var(--board-warn); }
+.shop .meta { font: 500 11px/1.4 var(--f-data); color: var(--board-dim); }
+.shop .lamp.ok { background: var(--board-ok); } .shop .lamp.bad { background: var(--board-bad); } .shop .lamp.warn { background: var(--board-warn); }
+.bufcol { flex: none; width: 74px; display: grid; place-items: center; align-content: center; gap: 6px; }
+.slots { display: flex; gap: 3px; }
+.slots i { width: 11px; height: 18px; border-radius: 2px; border: 1px solid var(--board-dim); }
+.slots i.f { background: var(--board-amber); border-color: var(--board-amber); }
+.bufcol span { font: 500 10px/1 var(--f-data); color: var(--board-dim); }
+.twin-low { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 1px; background: var(--board-line); }
+.twin-low > div { background: var(--board); padding: 14px 16px; min-width: 0; }
+.twin-low h3 { font-size: 13px; color: var(--board-dim); font-weight: 600; margin-bottom: 10px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; }
+.logwrap { max-height: 260px; overflow: auto; }
+table.log { width: 100%; border-collapse: collapse; font-size: 12.5px; color: var(--board-ink); }
+table.log th { text-align: left; font: 600 11px var(--f-data); color: var(--board-dim); padding: 6px 8px; border-bottom: 1px solid var(--board-line); position: sticky; top: 0; background: var(--board); white-space: nowrap; }
+table.log td { padding: 7px 8px; border-bottom: 1px solid var(--board-line); vertical-align: top; }
+table.log td.mono { white-space: nowrap; }
+table.log .tag { font: 600 11px var(--f-data); padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.open { background: color-mix(in srgb, var(--board-bad) 22%, transparent); color: var(--board-bad); }
+.tag.done { background: color-mix(in srgb, var(--board-ok) 18%, transparent); color: var(--board-ok); }
+.tag.day { background: color-mix(in srgb, var(--board-amber) 18%, transparent); color: var(--board-amber); }
+.empty { color: var(--board-dim); font-size: 13px; padding: 14px 0; }
+.lossbars { display: grid; gap: 10px; }
+.lossbars div { display: grid; grid-template-columns: 52px minmax(0, 1fr) 64px; gap: 10px; align-items: center; font-size: 13px; color: var(--board-ink); }
+.lossbars i { height: 10px; border-radius: 3px; background: var(--board-line); position: relative; overflow: hidden; }
+.lossbars i b { position: absolute; inset: 0 auto 0 0; background: var(--board-bad); border-radius: 3px; }
+.lossbars em { font: 500 12px var(--f-data); font-style: normal; text-align: right; color: var(--board-dim); }
+.tools { display: flex; flex-wrap: wrap; gap: 6px; }
+.tools .btn { background: transparent; color: var(--board-ink); border-color: var(--board-line); }
+.tools .btn:hover { border-color: var(--board-amber); }
+.note { font-size: 12px; color: var(--board-dim); margin-top: 10px; }
+
+/* 실험실 */
+.lab { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 20px; align-items: start; }
+.ctrl { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 18px; position: sticky; top: calc(16px + env(safe-area-inset-top, 0px)); }
+.ctrl fieldset { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+.ctrl legend { font-weight: 700; font-size: 14px; padding: 0; margin-bottom: 4px; }
+.presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.presets button { padding: 6px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface2); font-size: 13px; cursor: pointer; }
+.presets button[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: var(--on-navy); }
+.presets button:disabled { opacity: .45; cursor: default; }
+.field { display: grid; gap: 4px; }
+.field label { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.field label output { font: 600 13px var(--f-data); color: var(--navy); }
+.field input[type=range] { width: 100%; accent-color: var(--navy); }
+.field small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.derived { background: var(--surface2); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; color: var(--muted); display: grid; gap: 2px; }
+.derived b { color: var(--ink); font-family: var(--f-data); font-weight: 600; }
+.progress { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; }
+.progress i { display: block; height: 100%; width: 0; background: var(--amber); transition: width .15s; }
+
+.results { display: grid; gap: 16px; min-width: 0; }
+.sum { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.sum > div { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px; display: grid; gap: 2px; align-content: start; }
+.sum span { font-size: 12.5px; color: var(--muted); }
+.sum b { font: 600 24px/1.2 var(--f-data); font-variant-numeric: tabular-nums; }
+.sum b small { font-size: 13px; color: var(--muted); margin-left: 2px; font-weight: 500; }
+.sum em { font-style: normal; font-size: 12px; color: var(--muted); }
+.sum em.up { color: var(--ok); }
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; display: grid; gap: 12px; min-width: 0; }
+.chart header { display: grid; gap: 4px; }
+.chart header p { color: var(--muted); font-size: 14px; }
+.chart .finding { border-left: 3px solid var(--amber); padding: 2px 0 2px 12px; font-size: 14.5px; }
+.chart .finding b { font-family: var(--f-data); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.svgbox { overflow-x: auto; }
+.svgbox svg { display: block; width: 100%; height: auto; min-width: 480px; }
+.svgbox .grid { stroke: var(--line); stroke-width: 1; }
+.svgbox .axis { fill: var(--muted); font: 500 11px var(--f-data); }
+.svgbox .lab { fill: var(--muted); font: 500 11.5px var(--f-body); }
+.svgbox .val { fill: var(--ink); font: 600 11px var(--f-data); }
+.svgbox .mark { stroke: var(--amber); stroke-dasharray: 4 3; stroke-width: 1.5; }
+.c-game { stroke: var(--s-game); fill: var(--s-game); } .c-real { stroke: var(--s-real); fill: var(--s-real); } .c-alt { stroke: var(--s-alt); fill: var(--s-alt); }
+.bg-game { background: var(--s-game); } .bg-real { background: var(--s-real); } .bg-alt { background: var(--s-alt); }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+
+/* 검증 */
+.vgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.vcard { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.vcard .k { font: 600 12px var(--f-data); color: var(--amber); letter-spacing: .06em; }
+.vcard p { color: var(--muted); font-size: 14.5px; }
+.vcard p b { color: var(--ink); }
+pre { margin: 0; background: var(--surface2); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; font: 500 12.5px/1.6 var(--f-data); color: var(--ink); }
+pre .del { color: var(--bad); } pre .add { color: var(--ok); } pre .cm { color: var(--muted); }
+
+/* 웹앱·로드맵 */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.panel ul { display: grid; gap: 10px; }
+.panel li { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; font-size: 14px; }
+.panel li span:first-child { font: 600 12px/1.7 var(--f-data); color: var(--muted); }
+.panel li.fix span:first-child { color: var(--ok); }
+.road { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; background: var(--surface); }
+.road > div { padding: 20px; display: grid; gap: 10px; align-content: start; border-right: 1px solid var(--line); }
+.road > div:last-child { border-right: 0; }
+.road .now { background: color-mix(in srgb, var(--navy) 7%, var(--surface)); }
+.road .stage { font: 600 12px var(--f-data); color: var(--muted); display: flex; gap: 8px; align-items: center; }
+.road .stage .pill { padding: 2px 8px; border-radius: 99px; font-size: 11px; border: 1px solid var(--line); }
+.road .done .pill { color: var(--ok); border-color: var(--ok); }
+.road .now .pill { color: var(--on-navy); background: var(--navy); border-color: var(--navy); }
+.road p { color: var(--muted); font-size: 14px; }
+.road ul { display: grid; gap: 6px; font-size: 13.5px; }
+.road li::before { content: "– "; color: var(--muted); }
+
+footer { padding-block: 40px 56px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 12px 24px; justify-content: space-between; }
+footer .mono { color: var(--ink); }
+
+@media (max-width: 980px) {
+  .hero, .lab, .split, .vgrid, .two { grid-template-columns: minmax(0, 1fr); }
+  .ctrl { position: static; }
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .twin-low { grid-template-columns: minmax(0, 1fr); }
+  .sum { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .road { grid-template-columns: minmax(0, 1fr); }
+  .road > div { border-right: 0; border-bottom: 1px solid var(--line); }
+  .cols3 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 520px) {
+  section { padding-block: 40px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles3 { grid-template-columns: minmax(0, 1fr); }
+  .panel li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <div class="who"><b id="pName">홍길동</b><span id="pRole">생산관리 · 생산기술 지원</span></div>
+    <nav aria-label="페이지 목차">
+      <a href="#live">라이브 공장</a><a href="#lab">최적화 실험</a><a href="#verify">모델 검증</a><a href="#webapp">현장 웹앱</a><a href="#road">로드맵</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <div>
+      <p class="eyebrow">Production Simulation Portfolio</p>
+      <h1>가상 공장을 직접 만들고, <em>생산량을 깎아 먹는 손실</em>을 숫자로 찾습니다.</h1>
+      <p>직접 만든 자동차 공장 시뮬레이션 게임 「첫 출근 울산공장」을 실시간 대시보드로 읽고, 같은 규칙으로 돌아가는 모델로 버퍼와 보전 정책을 실험했습니다. 현장 비가동 기록 웹앱과 같은 데이터 형식으로 이어 붙였습니다.</p>
+      <div class="cta"><a class="btn pri" href="#live">공장 들어가 보기</a><a class="btn" href="#lab">실험 결과 보기</a></div>
+    </div>
+    <div class="board hero-board" aria-label="핵심 수치">
+      <div class="cap"><span><i></i>LINE SUMMARY</span><span>프레스 → 차체 → 도장 → 의장</span></div>
+      <div class="tiles3">
+        <div><b class="num">75<small>대</small></b><span>하루 이론 생산량</span><em>택트 6.4분 × 가동 480분</em></div>
+        <div><b class="num" id="hOpt">…</b><span>버퍼 최적점</span><em id="hOptSub">실험 계산 중</em></div>
+        <div><b class="num">2<small>건</small></b><span>모델 검증에서 찾은 차이</span><em>게임 규칙 ↔ 실제 라인</em></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="flow">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">System</p>
+      <h2>현장 기록, 가상 공장, 분석을 한 줄의 데이터로 잇습니다</h2>
+      <p class="lead">설비가 멈추면 남는 기록은 하나입니다. 날짜, 설비번호, 정지 사유, 증상, 조치, 비가동 시간, 처리 상태. 현장 웹앱과 게임이 이 형식 하나를 같이 쓰기 때문에, 게임을 계속 업데이트해도 대시보드와 시트는 바꿀 필요가 없습니다.</p>
+    </div>
+    <div class="flow">
+      <svg viewBox="0 0 1100 268" role="img" aria-label="시스템 구조도: 현장 웹앱과 게임이 같은 이벤트 형식으로 구글 시트와 대시보드에 기록을 보내고, 대시보드의 관측값이 실험 모델의 입력이 된다">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect class="box" x="10" y="20" width="220" height="80" rx="8"/>
+        <text class="t1" x="26" y="50">현장 비가동 웹앱</text><text class="t2" x="26" y="72">Apps Script · 모바일 입력</text><text class="t3" x="26" y="90">사람이 기록</text>
+        <rect class="box key" x="10" y="130" width="220" height="80" rx="8"/>
+        <text class="t1" x="26" y="160">첫 출근 울산공장 (게임)</text><text class="t2" x="26" y="182">4개 공장 · 버퍼 4칸 · 고장</text><text class="t3" x="26" y="200">window.TWIN 훅</text>
+        <rect class="box key" x="320" y="75" width="240" height="80" rx="8"/>
+        <text class="t1" x="336" y="105">공통 이벤트 로그</text><text class="t2" x="336" y="127">날짜 · 설비 · 사유 · 비가동(분)</text><text class="t3" x="336" y="145">한 가지 형식</text>
+        <rect class="box" x="650" y="20" width="200" height="80" rx="8"/>
+        <text class="t1" x="666" y="50">구글 시트</text><text class="t2" x="666" y="72">[생산기술] 이력 탭</text><text class="t3" x="666" y="90">doPost로 적재</text>
+        <rect class="box" x="650" y="130" width="200" height="80" rx="8"/>
+        <text class="t1" x="666" y="160">실시간 대시보드</text><text class="t2" x="666" y="182">OEE · 라인 · 버퍼</text><text class="t3" x="666" y="200">이 페이지</text>
+        <rect class="box key" x="900" y="75" width="190" height="80" rx="8"/>
+        <text class="t1" x="916" y="105">최적화 실험 모델</text><text class="t2" x="916" y="127">MTBF·MTTR로 보정</text><text class="t3" x="916" y="145">버퍼·보전 정책</text>
+        <path class="ar" d="M230,60 C275,60 275,100 318,105" marker-end="url(#ah)"/>
+        <path class="ar" d="M230,170 C275,170 275,130 318,125" marker-end="url(#ah)"/>
+        <path class="ar" d="M560,105 C605,105 605,60 648,60" marker-end="url(#ah)"/>
+        <path class="ar" d="M560,125 C605,125 605,170 648,170" marker-end="url(#ah)"/>
+        <path class="ar" d="M850,60 C875,60 875,100 898,105" marker-end="url(#ah)"/>
+        <path class="ar" d="M850,170 C875,170 875,130 898,125" marker-end="url(#ah)"/>
+        <path class="ar next" d="M995,155 C995,250 120,250 120,214" marker-end="url(#ah)"/>
+        <text class="t3" x="330" y="262">다음 단계: 실험에서 고른 정책을 게임 공장에 되돌려 적용 (양방향 = 디지털 트윈)</text>
+      </svg>
+    </div>
+    <div class="cols3">
+      <div><h3>1 · 기록한다</h3><p>현장 웹앱은 사람이 입력한 비가동 이력을, 게임은 라인이 멈출 때마다 같은 형식의 이력을 남깁니다.</p></div>
+      <div><h3>2 · 본다</h3><p>대시보드는 게임 공장을 0.15초마다 읽어 라인 상태, 버퍼 재고, 가용률·성능·품질로 나눈 OEE를 보여 줍니다.</p></div>
+      <div><h3>3 · 실험한다</h3><p>게임과 같은 규칙의 모델로 수백 일을 돌려 버퍼 크기, 고장 간격, 복구 시간이 생산량에 주는 영향을 잽니다.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="live">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Live · Digital Shadow</p>
+      <h2>게임 속 공장이 돌아가는 동안, 대시보드가 같이 움직입니다</h2>
+      <p class="lead">아래 게임에서 직무를 고르고 출근하면 연결됩니다. 라인이 멈추면 비가동 이력이 한 줄씩 쌓이고, 오른쪽 위 배속을 올리면 시간이 빨리 흐릅니다. 게임은 별도 파일이라 업데이트하면 이 페이지에도 바로 반영됩니다.</p>
+    </div>
+    <div class="game-shell">
+      <div class="game-bar">
+        <span class="conn"><i class="lamp" id="connLamp"></i><span id="connText">게임을 불러오는 중입니다.</span></span>
+        <a class="btn sm" href="game/index.html" target="_blank" rel="noopener">새 창에서 게임 열기</a>
+      </div>
+      <iframe id="game" src="game/index.html" title="첫 출근 울산공장 게임" loading="lazy" allow="autoplay"></iframe>
+    </div>
+
+    <div class="twin" aria-live="off">
+      <div class="twin-head"><span>MES · <b id="tClock">— 일차 --:--</b></span><span id="tMode">대기 중</span></div>
+      <div class="kpis">
+        <div><span>오늘 생산</span><b class="num" id="kProd">–</b><em id="kProdSub">목표 –대</em></div>
+        <div class="oee"><span>OEE</span><b class="num" id="kOee">–</b><em>A × P × Q</em></div>
+        <div><span>가용률 A</span><b class="num" id="kA">–</b><em>멈추지 않은 시간</em></div>
+        <div><span>성능 P</span><b class="num" id="kP">–</b><em>택트대로 흘렀나</em></div>
+        <div><span>품질 Q</span><b class="num" id="kQ">–</b><em>직행률</em></div>
+        <div><span>누적 비가동</span><b class="num" id="kDown">–</b><em>4개 공장 합계</em></div>
+      </div>
+      <div class="lineview"><div class="lanes" id="lanes"></div></div>
+      <div class="twin-low">
+        <div>
+          <h3><span>비가동 이력 <span class="mono" id="logN"></span></span>
+            <span class="tools"><button class="btn sm" id="bCopy" type="button">CSV 복사</button><button class="btn sm" id="bCsv" type="button">CSV 저장</button><button class="btn sm" id="bSheet" type="button" hidden>시트로 보내기</button></span></h3>
+          <div class="logwrap"><table class="log"><thead><tr><th>시각</th><th>설비번호</th><th>사유</th><th>증상</th><th>비가동</th><th>상태</th></tr></thead><tbody id="logBody"></tbody></table>
+          <p class="empty" id="logEmpty">아직 기록이 없습니다. 라인이 멈추면 여기에 한 줄씩 남습니다.</p></div>
+        </div>
+        <div>
+          <h3><span>공정별 비가동 (이번 접속)</span></h3>
+          <div class="lossbars" id="lossBars"></div>
+          <p class="note" id="calibNote">정지가 3건 이상 모이면 아래 실험 모델을 이 기록으로 보정할 수 있습니다.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="lab">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Optimization Lab</p>
+      <h2>같은 규칙의 모델로 수백 일을 돌려 봤습니다</h2>
+      <p class="lead">게임의 라인 로직(simLines)을 화면 없이 옮긴 모델입니다. 택트 6.4분, 공장 4개, 공장 사이 버퍼, 무작위 고장까지 같습니다. 조건마다 하루 480분을 여러 번 반복해 평균을 냅니다. 숫자는 이 페이지가 열릴 때마다 브라우저에서 새로 계산됩니다.</p>
+    </div>
+    <div class="lab">
+      <form class="ctrl" id="ctrl" onsubmit="return false">
+        <fieldset>
+          <legend>시나리오</legend>
+          <div class="presets" id="presets">
+            <button type="button" data-p="game" aria-pressed="false">게임 기본값</button>
+            <button type="button" data-p="aged" aria-pressed="true">노후 라인</button>
+            <button type="button" data-p="calib" aria-pressed="false" disabled>게임 기록으로 보정</button>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="iMtbf">공정당 고장 간격 MTBF <output id="oMtbf" for="iMtbf"></output></label>
+          <input type="range" id="iMtbf" min="80" max="2000" step="20" value="220">
+          <small>게임 기본값은 2,000분입니다(설비 상태 80). 하루 가동이 480분이니 공정마다 4일에 한 번꼴로 멈춥니다.</small>
+        </div>
+        <div class="field">
+          <label for="iMttr">평균 복구 시간 MTTR <output id="oMttr" for="iMttr"></output></label>
+          <input type="range" id="iMttr" min="3" max="30" step="1" value="8">
+          <small>게임은 5~11분, 평균 8분입니다.</small>
+        </div>
+        <div class="field">
+          <label for="iBuf">현재 버퍼 크기 <output id="oBuf" for="iBuf"></output></label>
+          <input type="range" id="iBuf" min="1" max="12" step="1" value="4">
+          <small>공장과 공장 사이에 대기할 수 있는 차 대수. 게임은 4칸입니다.</small>
+        </div>
+        <div class="derived" id="derived"></div>
+        <div class="field">
+          <label for="iReps">반복 횟수 <output id="oReps" for="iReps"></output></label>
+          <input type="range" id="iReps" min="2" max="12" step="1" value="5">
+          <small>조건 하나당 10일 × 반복 횟수만큼 돌립니다. 많을수록 정확하고 느립니다.</small>
+        </div>
+        <button class="btn pri" id="bRun" type="button">실험 다시 돌리기</button>
+        <div class="progress" aria-hidden="true"><i id="prog"></i></div>
+      </form>
+
+      <div class="results">
+        <div class="sum" id="sum">
+          <div><span>하루 생산 (현재 설계)</span><b class="num" id="sOut">–</b><em id="sOutSub">실제 컨베이어 방식</em></div>
+          <div><span>OEE</span><b class="num" id="sOee">–</b><em id="sOeeSub">&nbsp;</em></div>
+          <div><span>목표 68대 달성일</span><b class="num" id="sHit">–</b><em>10일 × 반복 중</em></div>
+          <div><span>버퍼 최적점</span><b class="num" id="sOpt">–</b><em id="sOptSub">&nbsp;</em></div>
+        </div>
+
+        <article class="chart">
+          <header><p class="eyebrow">실험 1 · 버퍼 크기</p><h3>버퍼를 늘리면 하루 생산이 얼마나 늘어나나</h3>
+            <p>공장 사이 대기 공간을 1칸에서 12칸까지 바꿨습니다. 회색은 게임 규칙 그대로, 남색은 빈 자리가 실제 컨베이어처럼 흘러가도록 고친 모델입니다.</p></header>
+          <div class="legend"><span><i class="bg-real"></i>실제 컨베이어 방식</span><span><i class="bg-game"></i>게임 규칙 그대로</span><span><i class="bg-alt"></i>최적점</span></div>
+          <div class="svgbox" id="ch1"></div>
+          <p class="finding" id="f1">계산 중입니다.</p>
+        </article>
+
+        <div class="two">
+          <article class="chart">
+            <header><p class="eyebrow">실험 2 · 손실 반영</p><h3>한 공장만 고장 날 때 잃는 차</h3>
+              <p>다른 공장은 멈추지 않게 두고, 한 곳만 같은 조건으로 고장 내 하루 손실을 비교했습니다.</p></header>
+            <div class="legend"><span><i class="bg-real"></i>실제 컨베이어 방식</span><span><i class="bg-game"></i>게임 규칙</span></div>
+            <div class="svgbox" id="ch2"></div>
+            <p class="finding" id="f2">계산 중입니다.</p>
+          </article>
+          <article class="chart">
+            <header><p class="eyebrow">실험 3 · 복구 시간</p><h3>빨리 고치는 것과 버퍼를 늘리는 것</h3>
+              <p>고장 간격은 그대로 두고 평균 복구 시간만 바꿨습니다. 버퍼 2칸과 8칸을 비교합니다.</p></header>
+            <div class="legend"><span><i class="bg-alt"></i>버퍼 8칸</span><span><i class="bg-real"></i>버퍼 2칸</span></div>
+            <div class="svgbox" id="ch3"></div>
+            <p class="finding" id="f3">계산 중입니다.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="verify">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Model Validation</p>
+      <h2>시뮬레이션을 믿기 전에, 시뮬레이션부터 검증했습니다</h2>
+      <p class="lead">모델을 게임 코드와 한 줄씩 맞춰 보는 과정에서 실제 라인과 다르게 움직이는 지점 두 곳을 찾았습니다. 게임으로는 자연스럽지만, 디지털 트윈으로 쓰려면 고쳐야 하는 부분입니다.</p>
+    </div>
+    <div class="vgrid">
+      <article class="vcard">
+        <p class="k">발견 1 · 빈 자리 당김</p>
+        <h3>앞 공장이 멈춰도 완성차 생산이 거의 줄지 않는다</h3>
+        <p>앞 공장이 멈춰 뒤 공장 입구가 비면, 게임은 다음 차를 <b>빈 자리만큼 앞으로 옮겨</b> 넣습니다. 그래서 빈 자리가 라인 끝까지 흘러가지 않고, 버퍼 크기를 바꿔도 생산량이 변하지 않습니다. 실제 컨베이어에서는 빈 행거가 그대로 흘러가 출구에서 손실로 나타납니다.</p>
+        <pre><span class="cm">// game.js · simLines()</span>
+<span class="del">- const d0 = last ? Math.max(0, last.d - GAP) : 0;</span>
+<span class="add">+ const d0 = (i === 0 &amp;&amp; last) ? Math.max(0, last.d - GAP) : 0;</span></pre>
+        <p id="v1">수정 전후 차이는 실험 1·2에 나와 있습니다.</p>
+      </article>
+      <article class="vcard">
+        <p class="k">발견 2 · 시간 간격 의존성</p>
+        <h3>배속을 올리면 하루 생산량이 줄어든다</h3>
+        <p>게임은 한 걸음에 최대 2분씩 시간을 넘깁니다. 차가 64px 간격을 10px/분으로 움직이니 이론 간격은 6.4분인데, 한 걸음이 1분이면 7걸음(7분)이 걸립니다. 배속이 높을수록 한 걸음이 커져 택트가 늘어나고, 대시보드의 <b>성능 P</b>가 떨어집니다.</p>
+        <pre><span class="cm">// game.js · advance()</span>
+<span class="del">- const s = Math.min(dt, 2);</span>
+<span class="add">+ const s = Math.min(dt, 0.2);   // 64px ÷ (10px/분 × 0.2분) = 정확히 32걸음</span></pre>
+        <p id="v2">모델로 잰 하루 생산: 계산 중입니다.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section id="webapp">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Field Data</p>
+      <h2>현장 비가동 기록 웹앱도 같은 지표로 다시 만들었습니다</h2>
+      <p class="lead">처음 만든 웹앱은 이력을 시트에 쌓는 데까지는 됐지만, 대시보드 숫자 일부가 코드에 고정돼 있었습니다. 게임과 같은 OEE 계산을 쓰도록 고치고, 게임 기록도 받을 수 있게 했습니다.</p>
+    </div>
+    <div class="split">
+      <div class="panel">
+        <h3>바꾼 것</h3>
+        <ul>
+          <li class="fix"><span>가동률</span><span>고정값 92.5% 대신, 계획 가동시간에서 비가동 시간을 빼서 계산합니다.</span></li>
+          <li class="fix"><span>OEE</span><span>가용률 × 성능 × 품질로 나눠 보여 줘서 어느 쪽 손실인지 바로 보입니다.</span></li>
+          <li class="fix"><span>설비 목록</span><span>고정 배열 대신 시트에 들어온 설비 번호로 만듭니다. 새 설비가 바로 보입니다.</span></li>
+          <li class="fix"><span>공장 도면</span><span>미해결 이력이 있는 라인은 도면에서도 정지로 바뀝니다.</span></li>
+          <li class="fix"><span>API</span><span>?api=dashboard로 JSON을 주고, doPost로 게임 기록을 받습니다.</span></li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>써 보기</h3>
+        <p class="lead">웹앱은 원래 구글 Apps Script에서 돌아갑니다. 여기서는 예시 데이터로 도는 데모를 열 수 있고, 이 사이트의 게임에서 쌓인 비가동 이력도 함께 불러옵니다.</p>
+        <div class="cta" style="display:flex;flex-wrap:wrap;gap:10px"><a class="btn pri" href="webapp/index.html" target="_blank" rel="noopener">웹앱 데모 열기</a><a class="btn" id="srcLink" href="#" target="_blank" rel="noopener">코드 보기 (GitHub)</a></div>
+        <p class="lead" style="font-size:13px">설비번호 규칙: LINE-01 프레스 · LINE-02 차체(용접) · LINE-03 도장 · LINE-04 의장(조립). 기존 웹앱의 라인 번호를 그대로 썼습니다.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="road">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Roadmap</p>
+      <h2>디지털 트윈까지, 지금 어디쯤인지</h2>
+      <p class="lead">데이터가 한쪽으로만 흐르면 디지털 섀도우, 분석 결과가 다시 공장을 바꾸면 디지털 트윈입니다. 지금은 두 번째 단계입니다.</p>
+    </div>
+    <div class="road">
+      <div class="done"><p class="stage">1단계 <span class="pill">완료</span></p><h3>디지털 모델</h3><p>게임 안에서 4개 공장, 버퍼, 고장, 품질이 혼자 돌아갑니다.</p>
+        <ul><li>프레스·차체·도장·의장 직렬 라인</li><li>공장 사이 버퍼 4칸</li><li>설비 상태에 따른 고장 확률</li></ul></div>
+      <div class="now"><p class="stage">2단계 <span class="pill">지금</span></p><h3>디지털 섀도우</h3><p>게임의 상태가 대시보드와 시트로 흘러가고, 기록으로 실험 모델을 보정합니다.</p>
+        <ul><li>읽기 전용 연결 훅 window.TWIN</li><li>실시간 OEE와 비가동 이력</li><li>MTBF·MTTR 보정, 버퍼·복구 실험</li></ul></div>
+      <div><p class="stage">3단계 <span class="pill">다음</span></p><h3>디지털 트윈</h3><p>실험에서 고른 정책을 대시보드에서 게임 공장에 적용하고, 결과를 다시 잽니다.</p>
+        <ul><li>공장별 택트 차이로 실제 병목 만들기</li><li>버퍼·예방보전 주기를 게임에 반영</li><li>교대·잔업과 실제 고장 데이터 연결</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <span>연락처 <span class="mono" id="pMail">you@example.com</span></span>
+    <span>GitHub <a id="pGit" href="#" target="_blank" rel="noopener">github.com/아이디</a></span>
+    <span>게임 · 대시보드 · 모델은 모두 직접 만든 코드입니다</span>
+  </footer>
+</div>
+
+<script src="assets/line-model.js"></script>
+<script src="assets/twin.js"></script>
+<script>
+/* ===== 여기만 고치면 됩니다 ===== */
+const PROFILE = {
+  name: '최문석',
+  role: '생산관리 · 생산기술 지원',
+  email: 'moonsuk97@naver.com',
+  github: ''https://github.com/cimus97-star/cimus97-star.github.io',
+  repo: 'https://github.com/cimus97-star/cimus97-star.github.io',
+  sheetUrl: ''          // Apps Script 웹앱 주소(…/exec)를 넣으면 '시트로 보내기' 버튼이 생깁니다
+};
+/* ============================== */
+
+const $ = s => document.querySelector(s);
+const pct = (v, d = 1) => v == null || !isFinite(v) ? '–' : (v * 100).toFixed(d) + '<small>%</small>';
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(Math.floor(m % 60)).padStart(2, '0');
+
+$('#pName').textContent = PROFILE.name; $('#pRole').textContent = PROFILE.role; $('#pMail').textContent = PROFILE.email;
+$('#pGit').href = PROFILE.github; $('#pGit').textContent = PROFILE.github.replace(/^https?:\/\//, ''); $('#srcLink').href = PROFILE.repo;
+if (PROFILE.sheetUrl) $('#bSheet').hidden = false;
+
+/* ---------- 라이브 트윈 ---------- */
+const SHOP_KO = LineModel.SHOP_KO;
+const lanes = $('#lanes');
+function renderSnap(s) {
+  $('#tClock').textContent = `${s.day}일차 ${hhmm(s.min)}`;
+  $('#tMode').textContent = s.lunch ? '점심 휴식 · 라인 정지' : s.paused ? '일시정지' : `${s.speed}배속 · 택트 ${s.takt}분`;
+  $('#kProd').innerHTML = `${s.prod}<small>대</small>`; $('#kProdSub').textContent = `목표 ${s.target}대 · 이론 ${Math.floor(s.ideal)}대`;
+  $('#kOee').innerHTML = pct(s.oee); $('#kA').innerHTML = pct(s.A); $('#kP').innerHTML = pct(s.P); $('#kQ').innerHTML = pct(s.Q);
+  $('#kP').parentElement.classList.toggle('low', s.P != null && s.P < 0.9);
+  $('#kA').parentElement.classList.toggle('low', s.A < 0.9);
+  $('#kDown').innerHTML = `${Math.round(s.down)}<small>분</small>`;
+  let h = '';
+  s.lines.forEach((L, i) => {
+    if (i > 0) { const slots = Array.from({ length: s.bufMax }, (_, j) => `<i class="${j < L.buf ? 'f' : ''}"></i>`).join(''); h += `<div class="bufcol" aria-label="버퍼 ${L.buf}/${s.bufMax}"><div class="slots">${slots}</div><span>버퍼 ${L.buf}/${s.bufMax}</span></div>`; }
+    h += `<div class="shop ${L.cls}"><b><i class="lamp ${L.cls}"></i>${L.name}</b><span class="st ${L.cls}">${esc(L.txt)}</span><span class="meta">${L.cls === 'bad' && L.why ? esc(L.why) : `라인 위 ${L.wip}대`}</span></div>`;
+  });
+  if (lanes.innerHTML !== h) lanes.innerHTML = h;
+}
+function renderLog(events) {
+  const rows = events.slice(0, 120).map(e => e.kind === 'day'
+    ? `<tr><td class="mono">D${e.day} ${e.t}</td><td colspan="3">하루 결산 · 생산 ${e.prod}대 / 목표 ${e.target}대 · 가용률 ${(e.A * 100).toFixed(1)}% · OEE ${e.oee == null ? '–' : (e.oee * 100).toFixed(1) + '%'}</td><td></td><td><span class="tag day">결산</span></td></tr>`
+    : `<tr><td class="mono">D${e.day} ${e.t}</td><td class="mono">${e.eq}</td><td>${e.reason}</td><td>${esc(e.why)}<br><span style="color:var(--board-dim);font-size:11.5px">${esc(e.eqName)}</span></td><td class="mono">${e.mins == null ? '–' : e.mins + '분'}</td><td><span class="tag ${e.status === '해결' ? 'done' : 'open'}">${e.status}</span></td></tr>`).join('');
+  $('#logBody').innerHTML = rows; $('#logEmpty').hidden = !!events.length;
+  $('#logN').textContent = events.length ? `${events.filter(e => e.kind === 'stop').length}건` : '';
+  const c = twin.calibration(), max = Math.max(1, ...LineModel.SHOPS.map(k => c.shops[k].stops ? c.shops[k].mttr * c.shops[k].stops : 0));
+  $('#lossBars').innerHTML = LineModel.SHOPS.map(k => { const s = c.shops[k], d = s.stops ? s.mttr * s.stops : 0; return `<div><span>${SHOP_KO[k]}</span><i><b style="width:${(d / max * 100).toFixed(1)}%"></b></i><em>${Math.round(d)}분 · ${s.stops}회</em></div>`; }).join('');
+  const ok = c.total >= 3; $('[data-p="calib"]').disabled = !ok;
+  $('#calibNote').textContent = ok ? `정지 ${c.total}건 · 관측 가동 ${Math.round(c.run)}분. 실험실의 '게임 기록으로 보정'을 누르면 이 값으로 모델을 맞춥니다.` : `정지가 3건 이상 모이면 아래 실험 모델을 이 기록으로 보정할 수 있습니다. (지금 ${c.total}건)`;
+}
+const STATUS_TXT = { live: '연결됨 · 게임 공장을 실시간으로 읽는 중', title: '게임 첫 화면 · 직무를 고르고 출근하면 연결됩니다' };
+const twin = Twin.create($('#game'), {
+  snap: renderSnap,
+  event: (e, all) => { renderLog(all); try { localStorage.setItem('twin-log', twin.csv()); } catch (err) {} },
+  status: (s, msg) => { $('#connLamp').className = 'lamp ' + (s === 'live' ? 'live' : s === 'blocked' ? 'bad' : ''); $('#connText').textContent = STATUS_TXT[s] || msg; }
+});
+twin.start(); renderLog([]);
+function saveFile(name, text) { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+function flash(btn, txt) { const o = btn.textContent; btn.textContent = txt; setTimeout(() => btn.textContent = o, 1600); }
+$('#bCsv').onclick = () => saveFile('비가동이력_게임.csv', twin.csv());
+$('#bCopy').onclick = async e => { try { await navigator.clipboard.writeText(twin.csv()); flash(e.target, '복사됨'); } catch (err) { flash(e.target, '복사 안 됨'); } };
+$('#bSheet').onclick = async e => { try { const n = await twin.sendToSheet(PROFILE.sheetUrl); flash(e.target, `${n}건 보냄`); } catch (err) { flash(e.target, '전송 실패'); } };
+
+/* ---------- 차트 (SVG, 한 축척으로 그린다) ---------- */
+function scale(d0, d1, r0, r1) { return v => r0 + (v - d0) / (d1 - d0 || 1) * (r1 - r0); }
+function niceRange(lo, hi, step) { return [Math.floor(lo / step) * step, Math.ceil(hi / step) * step]; }
+function lineChart(el, { xs, xLabel, series, yStep, yFmt = v => v, mark }) {
+  const W = 640, H = 260, m = { l: 46, r: 16, t: 14, b: 40 };
+  const all = series.flatMap(s => s.v); const [y0, y1] = niceRange(Math.min(...all) - yStep * 0.2, Math.max(...all) + yStep * 0.2, yStep);
+  const x = scale(xs[0], xs[xs.length - 1], m.l, W - m.r), y = scale(y0, y1, H - m.b, m.t);
+  let g = '';
+  for (let v = y0; v <= y1 + 1e-9; v += yStep) g += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${yFmt(v)}</text>`;
+  xs.forEach(v => g += `<text class="axis" x="${x(v)}" y="${H - m.b + 18}" text-anchor="middle">${v}</text>`);
+  g += `<text class="lab" x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">${xLabel}</text>`;
+  if (mark != null) g += `<line class="mark" x1="${x(mark)}" x2="${x(mark)}" y1="${m.t}" y2="${H - m.b}"/>`;
+  series.forEach(s => {
+    g += `<polyline class="${s.c}" fill="none" stroke-width="2.5" stroke-linejoin="round" points="${s.v.map((v, i) => `${x(xs[i])},${y(v)}`).join(' ')}" style="fill:none"/>`;
+    s.v.forEach((v, i) => g += `<circle class="${s.c}" cx="${x(xs[i])}" cy="${y(v)}" r="${xs[i] === mark ? 5 : 3}"/>`);
+    const L = s.v.length - 1; g += `<text class="val" x="${x(xs[L]) - 6}" y="${y(s.v[L]) - 9}" text-anchor="end">${yFmt(s.v[L], true)}</text>`;
+  });
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(xLabel)}에 따른 변화">${g}</svg>`;
+}
+function barChart(el, { cats, series, yStep, yFmt = v => v, yLabel }) {
+  const W = 480, H = 260, m = { l: 44, r: 10, t: 16, b: 40 };
+  const all = series.flatMap(s => s.v); const [, y1] = niceRange(0, Math.max(...all, yStep) * 1.12, yStep);
+  const y = scale(0, y1, H - m.b, m.t), cw = (W - m.l - m.r) / cats.length, bw = Math.min(26, cw / (series.length + 1.2));
+  let g = '';
+  for (let v = 0; v <= y1 + 1e-9; v += yStep) g += `<line class="grid" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="axis" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${yFmt(v)}</text>`;
+  cats.forEach((c, i) => {
+    const cx = m.l + cw * i + cw / 2; g += `<text class="lab" x="${cx}" y="${H - m.b + 18}" text-anchor="middle">${c}</text>`;
+    series.forEach((s, j) => { const bx = cx - (series.length * bw) / 2 + j * bw + 1, v = Math.max(0, s.v[i]); g += `<rect class="${s.c}" x="${bx}" y="${y(v)}" width="${bw - 2}" height="${Math.max(0.5, y(0) - y(v))}" rx="2"/><text class="val" x="${bx + (bw - 2) / 2}" y="${y(v) - 5}" text-anchor="middle">${yFmt(v, true)}</text>`; });
+  });
+  g += `<text class="lab" x="${(m.l + W - m.r) / 2}" y="${H - 4}" text-anchor="middle">${yLabel}</text>`;
+  el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(yLabel)}">${g}</svg>`;
+}
+
+/* ---------- 실험실 ---------- */
+const G = LineModel.GAME;
+const P = { mtbf: 220, mttr: 8, buf: 4, reps: 5, rate: null, preset: 'aged' };
+const PRESET = { game: { mtbf: 2000, mttr: 8 }, aged: { mtbf: 220, mttr: 8 } };
+const ui = { mtbf: $('#iMtbf'), mttr: $('#iMttr'), buf: $('#iBuf'), reps: $('#iReps') };
+function syncUi() {
+  ui.mtbf.value = P.mtbf; ui.mttr.value = P.mttr; ui.buf.value = P.buf; ui.reps.value = P.reps;
+  $('#oMtbf').textContent = P.rate ? '공정별 보정값' : P.mtbf.toLocaleString() + '분';
+  $('#oMttr').textContent = P.mttr.toFixed(P.mttr % 1 ? 1 : 0) + '분'; $('#oBuf').textContent = P.buf + '칸'; $('#oReps').textContent = P.reps + '회';
+  const rates = P.rate || [1, 1, 1, 1].map(() => 1 / P.mtbf), perDay = rates.map(r => r * G.DAY_MIN);
+  const A = rates.reduce((a, r) => a + 1 / (1 + r * P.mttr), 0) / 4;
+  $('#derived').innerHTML = P.rate
+    ? `<span>보정값 · 하루 고장 ${LineModel.SHOPS.map((k, i) => `${SHOP_KO[k]} <b>${perDay[i].toFixed(2)}</b>`).join(' · ')}회</span><span>공정 평균 가용률 약 <b>${(A * 100).toFixed(1)}%</b></span>`
+    : `<span>공정마다 하루 <b>${perDay[0].toFixed(2)}</b>회 멈춤</span><span>공정 평균 가용률 약 <b>${(A * 100).toFixed(1)}%</b></span>`;
+  document.querySelectorAll('#presets button').forEach(b => b.setAttribute('aria-pressed', b.dataset.p === P.preset));
+}
+ui.mtbf.oninput = () => { P.mtbf = +ui.mtbf.value; P.rate = null; P.preset = ''; syncUi(); queue(); };
+ui.mttr.oninput = () => { P.mttr = +ui.mttr.value; P.preset = P.rate ? P.preset : ''; syncUi(); queue(); };
+ui.buf.oninput = () => { P.buf = +ui.buf.value; syncUi(); queue(); };
+ui.reps.oninput = () => { P.reps = +ui.reps.value; syncUi(); queue(); };
+$('#presets').onclick = e => {
+  const b = e.target.closest('button'); if (!b || b.disabled) return;
+  if (b.dataset.p === 'calib') {
+    const c = twin.calibration(); if (c.total < 3) return;
+    const avgRate = c.total / c.run, mttrs = LineModel.SHOPS.map(k => c.shops[k].mttr).filter(v => v);
+    P.rate = LineModel.SHOPS.map(k => c.shops[k].stops ? c.shops[k].stops / c.run : avgRate / 4);
+    P.mttr = Math.max(3, Math.round(mttrs.reduce((a, v) => a + v, 0) / mttrs.length * 10) / 10);
+    P.mtbf = Math.round(Math.min(2000, Math.max(80, 4 / (avgRate || 1e-9)))); P.preset = 'calib';
+  } else { Object.assign(P, PRESET[b.dataset.p], { rate: null, preset: b.dataset.p }); }
+  syncUi(); run();
+};
+$('#bRun').onclick = run;
+let qT = null; function queue() { clearTimeout(qT); qT = setTimeout(run, 450); }
+
+const BUFS = [1, 2, 3, 4, 5, 6, 8, 10, 12], MTTRS = [4, 8, 12, 20, 30];
+let runId = 0;
+function cfg(extra) {
+  const rate = P.rate || [1, 1, 1, 1].map(() => 1 / P.mtbf);
+  return Object.assign({ rate, stopMin: Math.max(1, P.mttr - 3), stopMax: P.mttr + 3, buf: P.buf, days: 10, warm: 1, seed: 7 }, extra);
+}
+async function run() {
+  const id = ++runId; const jobs = [];
+  for (const mode of ['real', 'game']) for (const b of BUFS) jobs.push({ key: `b-${mode}-${b}`, p: cfg({ mode, buf: b }) });
+  const rate = cfg().rate;
+  for (const mode of ['real', 'game']) {
+    jobs.push({ key: `none-${mode}`, p: cfg({ mode, rate: [0, 0, 0, 0] }) });
+    LineModel.SHOPS.forEach((k, i) => { const r = [0, 0, 0, 0]; r[i] = rate[i] || 1 / P.mtbf; jobs.push({ key: `solo-${mode}-${k}`, p: cfg({ mode, rate: r }) }); });
+  }
+  for (const b of [2, 8]) for (const t of MTTRS) jobs.push({ key: `t-${b}-${t}`, p: cfg({ mode: 'real', buf: b, stopMin: Math.max(1, t - 3), stopMax: t + 3 }) });
+  for (const dt of [0.2, 1, 2]) jobs.push({ key: `dt-${dt}`, p: { mode: 'game', up: 80, dt, days: 10, warm: 1, seed: 3 } });
+  const R = {}; $('#bRun').disabled = true;
+  for (let i = 0; i < jobs.length; i++) {
+    if (id !== runId) return;
+    R[jobs[i].key] = LineModel.avg(jobs[i].p, jobs[i].key.startsWith('dt-') ? 2 : P.reps);
+    $('#prog').style.width = ((i + 1) / jobs.length * 100) + '%';
+    await new Promise(r => setTimeout(r, 0));
+  }
+  $('#bRun').disabled = false; setTimeout(() => { if (id === runId) $('#prog').style.width = '0'; }, 600);
+  show(R);
+}
+const f1 = (v, s) => (v >= 0 && s ? '+' : '') + v.toFixed(1);
+function show(R) {
+  const real = BUFS.map(b => R[`b-real-${b}`].out), game = BUFS.map(b => R[`b-game-${b}`].out);
+  const max = Math.max(...real), opt = BUFS[real.findIndex(v => v >= max - 0.1)];
+  const cur = R[`b-real-${P.buf}`] || LineModel.avg(cfg({ mode: 'real' }), P.reps);
+  $('#sOut').innerHTML = `${cur.out.toFixed(1)}<small>대</small>`; $('#sOutSub').textContent = `이론 75대 · 버퍼 ${P.buf}칸`;
+  $('#sOee').innerHTML = pct(cur.oee); $('#sOeeSub').textContent = `A ${(cur.A * 100).toFixed(1)} · P ${(cur.P * 100).toFixed(1)} · Q ${(cur.Q * 100).toFixed(1)}`;
+  $('#sHit').innerHTML = pct(cur.hit, 0);
+  const gain = R[`b-real-${opt}`].out - R['b-real-1'].out;
+  $('#sOpt').innerHTML = `${opt}<small>칸</small>`; $('#sOptSub').innerHTML = `1칸 대비 <span style="color:var(--ok)">${f1(gain, 1)}대/일</span>`;
+  $('#hOpt').innerHTML = `${opt}<small>칸</small>`; $('#hOptSub').textContent = `1칸보다 하루 ${f1(gain, 1)}대 · 노후 라인 기준`;
+  if (P.preset !== 'aged') $('#hOptSub').textContent = `1칸보다 하루 ${f1(gain, 1)}대 · 현재 시나리오`;
+  const lo = Math.min(...real, ...game), hi = Math.max(...real, ...game), step = hi - lo > 6 ? 2 : hi - lo > 2.5 ? 1 : 0.5;
+  lineChart($('#ch1'), { xs: BUFS, xLabel: '공장 사이 버퍼 (칸)', yStep: step, yFmt: (v, last) => last ? v.toFixed(1) + '대' : v.toFixed(step < 1 ? 1 : 0), mark: opt,
+    series: [{ c: 'c-game', v: game }, { c: 'c-real', v: real }] });
+  const gSpan = Math.max(...game) - Math.min(...game);
+  $('#f1').innerHTML = `실제 컨베이어 방식에서는 버퍼 1칸 → <b>${opt}칸</b>에서 하루 <b>${f1(gain, 1)}대</b>가 늘고, 그 뒤로는 ${BUFS[BUFS.length - 1]}칸까지 늘려도 <b>${f1(real[real.length - 1] - R[`b-real-${opt}`].out, 1)}대</b>입니다. 게임 규칙에서는 1칸부터 12칸까지 차이가 <b>${gSpan.toFixed(2)}대</b>로, 버퍼가 생산량에 영향을 주지 않습니다.`;
+
+  const lossOf = (mode, k) => R[`none-${mode}`].out - R[`solo-${mode}-${k}`].out;
+  const lr = LineModel.SHOPS.map(k => lossOf('real', k)), lg = LineModel.SHOPS.map(k => lossOf('game', k));
+  const ymax = Math.max(...lr, ...lg);
+  barChart($('#ch2'), { cats: LineModel.SHOPS.map(k => SHOP_KO[k]), yLabel: '하루 손실 (대)', yStep: ymax > 6 ? 2 : ymax > 2.5 ? 1 : 0.5, yFmt: (v, l) => l ? v.toFixed(1) : (v % 1 ? v.toFixed(1) : v),
+    series: [{ c: 'c-real', v: lr }, { c: 'c-game', v: lg }] });
+  const gameTxt = lg[0] < 0.05 ? `게임 규칙에서는 거의 잃지 않습니다(<b>${lg[0].toFixed(1)}대</b>)` : `게임 규칙은 <b>${lg[0].toFixed(1)}대</b>만 잃습니다${lr[0] > 0.05 ? ` (약 ${Math.round(lg[0] / lr[0] * 100)}%만 반영)` : ''}`;
+  $('#f2').innerHTML = `프레스만 멈출 때 실제 방식은 하루 <b>${lr[0].toFixed(1)}대</b>를 잃는데, ${gameTxt}. 의장은 둘 다 <b>${lr[3].toFixed(1)}대 / ${lg[3].toFixed(1)}대</b>로 같습니다. 마지막 공장의 정지는 어떤 규칙에서도 그대로 손실입니다.`;
+  $('#v1').innerHTML = `고친 뒤 모델에서는 버퍼 1칸 → ${opt}칸에서 하루 <b>${f1(gain, 1)}대</b> 차이가 생기고, 프레스 정지 손실이 <b>${lg[0].toFixed(1)}대 → ${lr[0].toFixed(1)}대</b>로 제대로 잡힙니다.`;
+
+  const t2 = MTTRS.map(t => R[`t-2-${t}`].out), t8 = MTTRS.map(t => R[`t-8-${t}`].out);
+  const tl = Math.min(...t2, ...t8), th = Math.max(...t2, ...t8), ts = th - tl > 8 ? 4 : th - tl > 4 ? 2 : 1;
+  lineChart($('#ch3'), { xs: MTTRS, xLabel: '평균 복구 시간 (분)', yStep: ts, yFmt: (v, last) => last ? v.toFixed(1) + '대' : v.toFixed(0), series: [{ c: 'c-real', v: t2 }, { c: 'c-alt', v: t8 }] });
+  const i8 = MTTRS.indexOf(8), i20 = MTTRS.indexOf(20);
+  $('#f3').innerHTML = `복구가 8분일 때 버퍼 8칸의 이득은 <b>${f1(t8[i8] - t2[i8], 1)}대</b>, 20분이면 <b>${f1(t8[i20] - t2[i20], 1)}대</b>입니다. 버퍼 2칸에서 복구를 20분 → 8분으로 줄이면 <b>${f1(t2[i8] - t2[i20], 1)}대</b>가 늘어납니다. 짧은 정지는 버퍼가 받아 주지만, 긴 정지는 결국 보전 대응 속도로 막아야 합니다.`;
+
+  $('#v2').innerHTML = `모델로 잰 하루 생산(게임 기본값): 한 걸음 0.2분 <b>${R['dt-0.2'].out.toFixed(1)}대</b> · 1분 <b>${R['dt-1'].out.toFixed(1)}대</b> · 2분 <b>${R['dt-2'].out.toFixed(1)}대</b>. 이론값은 75대입니다.`;
+}
+syncUi(); run();
+</script>
+</body>
+</html>
