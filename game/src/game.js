@@ -8,13 +8,43 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const hhmm = m => String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(Math.floor(m % 60)).padStart(2, '0');
 
-const W = 1200, H = 640, GAP = 64, V = 10, BUF = 4, DAYS = 10, TARGET = 68, SAVE = 'first-day-ulsan-v5', NT = 6, WD = ['월', '화', '수', '목', '금'];
+const W = 1200, H = 640, GAP = 64, V = 10, BUF = 4, DAYS = 10, TARGET = 66, SAVE = 'first-day-ulsan-v5', NT = 6, WD = ['월', '화', '수', '목', '금'];
 const WALK = 110, NWALK = 100, NSTROLL = 22;           // 게임 시간 1분에 걷는 거리(px)
 const COLORS = ['#e6eaee', '#1c2b44', '#8d2323', '#59697a', '#2d5f8f', '#c2c8ce', '#263a31', '#b0892f'];
 const STEEL = '#9aa6b1';
 const SIDE = ['coil', 'rack', 'bench', 'lot'];
 const STAT = { sk: '역량', tr: '신뢰', en: '컨디션', pf: '성과', q: '직행률', sf: '안전지수', up: '설비 상태', fr: '동기 친밀도' };
 const EV = {}; EVENTS.forEach(e => EV[e.id] = e);
+/* 공장별 사이클타임(분/대). 도장이 가장 느려 병목이 된다. 주소에 ?ct=paint:6.0 처럼 붙이면 덮어쓴다(3~12분만 허용) */
+const CT = { press: 5.8, body: 6.2, paint: 6.8, assy: 6.4 };
+const QS = (() => { try { return new URLSearchParams(location.search); } catch (e) { return new URLSearchParams(''); } })();
+(() => { const raw = QS.get('ct'); if (!raw) return; for (const part of raw.split(',')) { const [k, v] = part.split(':').map(x => (x || '').trim()); const n = parseFloat(v); if (k in CT && isFinite(n) && n >= 3 && n <= 12) CT[k] = Math.round(n * 100) / 100; } })();
+const CTX = () => Math.max(CT.press, CT.body, CT.paint, CT.assy);   // 라인 전체 택트 = 병목 공정의 사이클타임
+/* 하루하루 달라지는 라인 속도: 기준 CT(설계값, ?ct로 바꿀 수 있음)에 그날의 변수를 곱한다. ?vary=0이면 고정 */
+const CT0 = { ...CT }, VARY = QS.get('vary') !== '0';
+const CTV = {
+  all: [['신규 작업자 적응 중', 0.04, 0.08], ['숙련 조 편성', -0.05, -0.03], ['고사양 차 비중이 높아 작업이 많음', 0.03, 0.06], ['기본 사양 비중이 높음', -0.04, -0.02], ['설비 조건 최적화 적용', -0.05, -0.03], ['결원으로 대체 인력 투입', 0.05, 0.09], ['개선 아이디어 적용 첫날', -0.04, -0.02]],
+  press: [['금형 교환이 잦은 서열', 0.04, 0.07], ['코일 재질이 바뀌어 조건 재설정', 0.03, 0.05]],
+  body: [['용접 팁 교체 주기', 0.02, 0.05], ['로봇 경로 수정 반영', -0.04, -0.02]],
+  paint: [['습도가 높아 건조 조건 조정', 0.04, 0.08], ['색상 교체가 적은 서열', -0.05, -0.03], ['부스 필터 막힘으로 풍량 저하', 0.03, 0.06]],
+  assy: [['신차 옵션 부품 추가', 0.03, 0.06], ['부품 서열 공급 안정', -0.04, -0.02], ['체결 공구 교정 대기', 0.02, 0.05]]
+};
+function rollCT() {   // 공장마다 절반은 평소 수준(±1%), 나머지는 그날의 사정이 생긴다
+  const o = { day: S.day, ct: {}, f: {}, why: {} };
+  for (const k of SHOPS) {
+    let f = 1, why = '평소 수준';
+    if (VARY) { if (Math.random() < 0.5) f = 1 + rnd(-0.01, 0.01); else { const v = pick(CTV.all.concat(CTV[k])); f = 1 + rnd(v[1], v[2]); why = v[0]; } }
+    o.f[k] = f; o.why[k] = why; o.ct[k] = clamp(Math.round(CT0[k] * f * 100) / 100, 3, 12);
+  }
+  return o;
+}
+function applyCT(o) { if (o && o.ct) for (const k of SHOPS) if (isFinite(o.ct[k])) CT[k] = o.ct[k]; }
+const ctPct = k => { const d = Math.round((CT[k] / CT0[k] - 1) * 100); return d > 0 ? `+${d}%` : d < 0 ? `−${-d}%` : '±0%'; };
+const bottleneck = () => SHOPS.reduce((a, k) => CT[k] > CT[a] ? k : a, SHOPS[0]);
+function ctTable() {
+  const b = bottleneck(), cd = S.ctDay || { why: {} };
+  return `<div class="ctday"><small>오늘의 라인 속도 · 사이클타임(분/대)</small>${SHOPS.map(k => `<div class="${k === b ? 'bn' : ''}"><b>${ZONES[k].n}</b><em>${CT[k].toFixed(2)}</em><span class="${ctPct(k).startsWith('+') ? 'up' : ctPct(k).startsWith('−') ? 'dn' : ''}">${ctPct(k)}</span><i>${cd.why[k] || '평소 수준'}${k === b ? ' · 오늘의 병목' : ''}</i></div>`).join('')}<p>병목 공장이 하루 생산을 정합니다. 오늘 이론 생산은 ${Math.floor(480 / CT[b])}대입니다.</p></div>`;
+}
 const INC = {}; INCS.forEach(e => INC[e.id] = e);
 EVENTS.forEach(ev => { if (ev.bal) return; ev.c.forEach(c => {
   const fx = c[2] = { ...(c[2] || {}) }, ex = c[3] || {}, s = (fx.sk || 0) + (fx.tr || 0) + (fx.pf || 0) + (fx.q || 0) * 2 + (fx.sf || 0) + (fx.up || 0);
@@ -131,6 +161,120 @@ const ME = { path: null, trip: null, dir: 's', mv: false,
   get x() { return S.px; }, set x(v) { S.px = v; }, get y() { return S.py; }, set y(v) { S.py = v; },
   get z() { return S.zone; }, set z(v) { if (v !== S.zone) { S.zone = v; onZone(); } } };
 
+/* ---------- 디지털 트윈 연결: 하루 실적 기록과 데이터 내보내기 (읽기 전용) ---------- */
+function newShopDay() { const o = {}; for (const k of ['press', 'body', 'paint', 'assy']) o[k] = { down: 0, stops: 0 }; return o; }
+function fixTwinState(st) {   // 예전 저장 파일에는 없던 값을 채운다
+  if (!Array.isArray(st.prodHist)) st.prodHist = [];
+  if (!Array.isArray(st.dayStops)) st.dayStops = [];
+  const z = newShopDay(); if (!st.shopDay || typeof st.shopDay !== 'object') st.shopDay = z;
+  else for (const k in z) { const v = st.shopDay[k]; st.shopDay[k] = v && typeof v === 'object' ? { down: +v.down || 0, stops: +v.stops || 0 } : z[k]; }
+}
+const TWCH = 'ulsan-factory-twin';
+let twBC = null; try { if (typeof BroadcastChannel === 'function') twBC = new BroadcastChannel(TWCH); } catch (e) { twBC = null; }
+function twSend(type, body) {
+  try {
+    if (!S) return;
+    const msg = Object.assign({ type, v: 2, day: S.day, min: Math.round(S.min * 10) / 10 }, body || {});
+    if (twBC) { try { twBC.postMessage(msg); } catch (e) {} }
+    if (window.parent && window.parent !== window) { try { window.parent.postMessage(msg, location.origin); } catch (e) {} }
+  } catch (e) {}
+}
+const r1 = v => Math.round(v * 10) / 10;
+function twHold() {
+  if (UI.modal) return UI.phase || (S.lunch ? '점심' : UI.modal.esc ? '일시정지' : '이벤트');
+  if (S.paused) return '일시정지';
+  if (S.lunch) return '점심';
+  return null;
+}
+function twSnapshot() {
+  try {
+    if (!UI.started || !S) return;
+    twSend('snapshot', {
+      prod: { today: S.prod.today, ftt: S.prod.ftt, total: S.prod.total }, target: S.target, down: r1(S.down), uptime: r1(uptime()),
+      plant: { q: S.plant.q, sf: S.plant.sf, up: S.plant.up }, lunch: !!S.lunch, paused: !!S.paused, speed: S.speed, hold: twHold(),
+      lines: LN.map((L, i) => { const st = lineState(i); return { k: L.k, state: st[0], label: st[1], stop: r1(Math.max(0, L.stop)), why: L.stop > 0 ? L.why || null : null, at: L.at || null, buf: L.buf.length, wip: L.u.length, ct: CT[L.k] }; }),
+      bufMax: BUF, takt: CTX(), ct: { ...CT }, shopDay: JSON.parse(JSON.stringify(S.shopDay))
+    });
+  } catch (e) {}
+}
+/* ---------- 생산 현황판: 사무동 상황실 벽 스크린과 B 키 대시보드 ---------- */
+const LINEID = { press: 'LINE-01', body: 'LINE-02', paint: 'LINE-03', assy: 'LINE-04' };
+const BOARD = { x0: 728, x1: 872, y: 81.6, z0: 10, z1: 54, sx: 800, sy: 108 };
+function kpi() {
+  const el = Math.max(1, S.min <= 720 ? S.min - 480 : S.min < 780 ? 240 : S.min - 540), takt = CTX();
+  const A = clamp(uptime() / 100, 0, 1), runA = Math.max(1, el - ((S.shopDay && S.shopDay.assy && S.shopDay.assy.down) || 0));
+  const P = S.min <= 482 ? 1 : clamp(S.prod.today * takt / runA, 0, 1), Q = S.prod.today ? S.prod.ftt / S.prod.today : S.plant.q / 100;
+  const shopA = SHOPS.map(k => clamp(1 - ((S.shopDay && S.shopDay[k] && S.shopDay[k].down) || 0) / el, 0, 1));
+  const plan = Math.round(S.target * Math.min(1, el / 480));   // 지금 시각까지 나왔어야 할 대수
+  return { el, A, P, Q, oee: A * P * Q, shopA, plan, prog: S.prod.today / Math.max(1, S.target), takt };
+}
+const pct = v => Math.round(v * 100);
+function boardDraw(t) {
+  const b = BOARD, k = kpi(), y = b.y, W0 = b.x0, W1 = b.x1;
+  box(W0 - 3, y - 1.6, b.z0 - 3, W1 + 3, y, b.z1 + 3, C3.dark);
+  vqY(W0, W1, y + 0.3, b.z0, b.z1, rgbOf('#0f1a24'), 1, 2);
+  vqY(W0, W1, y + 0.5, b.z1 - 6, b.z1, K.pri, 1, 2);
+  // 왼쪽: 공장별 가동 막대
+  SHOPS.forEach((sh, i) => {
+    const z = b.z1 - 13 - i * 7, st = lineState(i)[0], c = st === 'bad' ? (Math.sin(t * 8) > 0 ? K.bad : mix(K.bad, -0.4)) : st === 'warn' ? rgbOf('#e9c21a') : K.ok, x0 = W0 + 26, x1 = W0 + 70;
+    vqY(x0, x1, y + 0.6, z, z + 3.6, rgbOf('#26384a'), 1, 2); vqY(x0, x0 + (x1 - x0) * k.shopA[i], y + 0.8, z, z + 3.6, c, 1, 2);
+  });
+  // 오른쪽 위: 생산 진도
+  const px0 = W0 + 80, px1 = W1 - 6, pz = b.z1 - 19;
+  vqY(px0, px1, y + 0.6, pz, pz + 5, rgbOf('#26384a'), 1, 2); vqY(px0, px0 + (px1 - px0) * clamp(k.prog, 0, 1), y + 0.8, pz, pz + 5, S.prod.today >= k.plan ? K.ok : K.accent, 1, 2);
+  const mk = px0 + (px1 - px0) * clamp(k.plan / Math.max(1, S.target), 0, 1); vqY(mk - 0.6, mk + 0.6, y + 1, pz - 1, pz + 6, C3.white, 1, 2);
+  // 오른쪽 아래: 날짜별 생산 막대
+  const hist = (S.prodHist || []).slice(-7), n = hist.length + 1, bw = (px1 - px0) / 8;
+  hist.concat([{ prod: S.prod.today, target: S.target, now: 1 }]).forEach((r, i) => {
+    const x = px0 + i * bw + bw * 0.18, h = 10 * clamp(r.prod / Math.max(1, r.target), 0, 1.2), col = r.now ? K.accent : r.prod >= r.target ? K.ok : K.bad;
+    vqY(x, x + bw * 0.64, y + 0.8, b.z0 + 4, b.z0 + 4 + Math.max(0.4, h), col, 1, 2);
+  });
+  vqY(px0, px1, y + 0.9, b.z0 + 4 + 10 - 0.25, b.z0 + 4 + 10 + 0.25, rgbOf('#8fa0b1'), 1, 2);
+}
+function boardText(t) {
+  try {
+    const b = BOARD, cp = CM.pos; if (cp[1] < b.y + 4 || Math.hypot(cp[0] - (b.x0 + b.x1) / 2, cp[1] - b.y) > 420) return;
+    const k = kpi(), y = b.y + 1.2, P_ = (x, z) => proj([x, y, z]), c0 = P_(b.x0, b.z1), c1 = P_(b.x1, b.z1); if (c0[2] < 10 || c1[2] < 10) return;
+    const u = Math.hypot(c1[0] - c0[0], c1[1] - c0[1]) / (b.x1 - b.x0);   // 화면 픽셀 / 월드 단위
+    if (u < 1.1) return;
+    const txt = (s, x, z, size, col, al = 'left', w = 600) => { const q = P_(x, z); cx.font = `${w} ${Math.max(7, size * u)}px "IBM Plex Sans KR", system-ui, sans-serif`; cx.fillStyle = col; cx.textAlign = al; cx.textBaseline = 'middle'; cx.fillText(s, q[0], q[1]); };
+    txt('생산 현황판 · MES', b.x0 + 3, b.z1 - 3, 3.4, '#F2F6FA', 'left', 700);
+    txt(`${S.day}일차 ${hhmm(S.min)}`, b.x1 - 3, b.z1 - 3, 3, '#F2F6FA', 'right');
+    SHOPS.forEach((sh, i) => { const z = b.z1 - 11.2 - i * 7, ls = lineState(i); txt(ZONES[sh].n, b.x0 + 3, z, 3, '#C9D4DF'); txt(ls[0] === 'ok' ? `${pct(k.shopA[i])}%` : ls[1], b.x0 + 72, z, 2.6, ls[0] === 'bad' ? '#F0625B' : ls[0] === 'warn' ? '#F0C24B' : '#7DDBAE'); });
+    txt(`생산 ${S.prod.today} / ${S.target}대`, b.x0 + 80, b.z1 - 11, 3.6, '#F2F6FA', 'left', 700);
+    txt(`계획 대비 ${S.prod.today - k.plan >= 0 ? '+' : ''}${S.prod.today - k.plan}`, b.x1 - 6, b.z1 - 11, 2.8, S.prod.today >= k.plan ? '#7DDBAE' : '#F0C24B', 'right');
+    txt(`가동률 ${pct(k.A)}%  성능 ${pct(k.P)}%  품질 ${pct(k.Q)}%`, b.x0 + 80, b.z1 - 23, 2.7, '#C9D4DF');
+    txt(`OEE ${pct(k.oee)}%`, b.x0 + 80, b.z1 - 28, 4.2, k.oee >= 0.85 ? '#7DDBAE' : k.oee >= 0.65 ? '#F0C24B' : '#F0625B', 'left', 700);
+    txt('날짜별 생산 ↓', b.x1 - 6, b.z1 - 28, 2.6, '#8FA0B1', 'right');
+    txt('가까이 가서 E · 어디서나 B', b.x0 + 3, b.z0 + 3, 2.4, '#8FA0B1');
+  } catch (e) {}
+}
+function openBoard() {
+  if (!S || (UI.modal && !UI.modal.board)) return;
+  const k = kpi(), first = learn(['oee', 'track'], true);
+  const kc = v => v >= 0.85 ? 'ok' : v >= 0.65 ? 'warn' : 'bad';
+  const hist = (S.prodHist || []).slice(-10), rows = hist.concat(S.min > 480 ? [{ day: S.day, prod: S.prod.today, target: S.target, uptime: uptime(), now: 1 }] : []);
+  const mx = Math.max(10, ...rows.map(r => Math.max(r.prod, r.target))) * 1.1, cw = 460, chh = 150, bw = Math.min(40, (cw - 30) / Math.max(1, rows.length));
+  const chart = rows.length ? `<svg class="bchart" viewBox="0 0 ${cw} ${chh + 34}" role="img" aria-label="날짜별 생산 실적과 목표">
+    ${[0, 0.5, 1].map(f => `<line x1="28" x2="${cw}" y1="${chh - f * chh / 1.1}" y2="${chh - f * chh / 1.1}" class="gl"/><text x="24" y="${chh - f * chh / 1.1 + 4}" class="ax" text-anchor="end">${Math.round(f * mx / 1.1)}</text>`).join('')}
+    ${rows.map((r, i) => { const x = 34 + i * (cw - 40) / rows.length, h = chh * r.prod / mx, ty = chh - chh * r.target / mx; return `<rect x="${x}" y="${chh - h}" width="${bw * 0.7}" height="${h}" rx="2" class="${r.now ? 'now' : r.prod >= r.target ? 'hit' : 'miss'}"><title>${r.day}일차 ${r.prod}대 / 목표 ${r.target}대</title></rect><line x1="${x - 3}" x2="${x + bw * 0.7 + 3}" y1="${ty}" y2="${ty}" class="tg"/><text x="${x + bw * 0.35}" y="${chh - h - 4}" class="vl" text-anchor="middle">${r.prod}</text><text x="${x + bw * 0.35}" y="${chh + 14}" class="ax" text-anchor="middle">${r.now ? '오늘' : r.day + '일'}</text><text x="${x + bw * 0.35}" y="${chh + 28}" class="ax" text-anchor="middle">${Math.round(r.uptime)}%</text>`; }).join('')}
+  </svg><p class="legend"><i class="hit"></i>목표 달성 <i class="miss"></i>미달 <i class="now"></i>오늘(진행 중) <i class="tg"></i>목표 · 막대 아래 숫자는 가동률</p>` : '<p class="hint">하루를 마치면 여기에 날짜별 실적이 쌓입니다.</p>';
+  const stops = (S.dayStops || []).slice().reverse();
+  openModal(`<p class="eyebrow">생산 종합상황실 · MES · ${S.day}일차 ${hhmm(S.min)}</p><h2>생산 현황판</h2>
+    <div class="tiles kpi"><div><b>${S.prod.today}<small> / ${S.target}</small></b><span>오늘 생산 · 지금까지 계획 ${k.plan}대</span><i class="pbar"><b style="width:${Math.min(100, pct(k.prog))}%"></b><em style="left:${Math.min(100, pct(k.plan / Math.max(1, S.target)))}%"></em></i></div>
+      <div class="${kc(k.oee)}"><b>${pct(k.oee)}<small>%</small></b><span>OEE = 가동률 × 성능 × 품질</span></div>
+      <div class="${kc(k.A)}"><b>${pct(k.A)}<small>%</small></b><span>가동률 · 비가동 ${Math.round(S.down)}분</span></div>
+      <div class="${kc(k.P)}"><b>${pct(k.P)}<small>%</small></b><span>성능 · 택트 ${k.takt.toFixed(1)}분/대</span></div>
+      <div class="${kc(k.Q)}"><b>${pct(k.Q)}<small>%</small></b><span>품질 · 직행 ${S.prod.ftt}대</span></div></div>
+    <h3>공장별 상태</h3>
+    <div class="lines">${LN.map((L, i) => { const ls = lineState(i), d = S.shopDay[L.k]; return `<div><span class="lamp ${ls[0]}"></span><b>${ZONES[L.k].n}</b><small>${LINEID[L.k]}</small><em>${ls[1]}${L.stop > 0 && L.why ? ' · ' + esc(L.why) : ''}</em><span class="buf" title="앞 공정에서 넘어와 기다리는 차">${i ? `대기 ${L.buf.length}/${BUF}` : '코일 입고'}</span><span>CT ${CT[L.k].toFixed(2)}분 ${ctPct(L.k)}${L.k === bottleneck() ? ' · 병목' : ''} · 가동 ${pct(k.shopA[i])}% · 정지 ${d.stops}회</span></div>`; }).join('')}</div>
+    ${ctTable()}
+    <h3>날짜별 실적</h3>${chart}
+    <h3>오늘 정지 기록 <small>${stops.length}건</small></h3>
+    ${stops.length ? `<div class="tbl"><table><thead><tr><th>시각</th><th>설비번호</th><th>공정</th><th>정지사유</th><th>비가동</th><th>상태</th></tr></thead><tbody>${stops.map(r => `<tr><td>${hhmm(r.t)}</td><td>${LINEID[r.k]}</td><td>${ZONES[r.k].n}${r.at && STMAP[r.k][r.at] ? ' · ' + STMAP[r.k][r.at].n : ''}</td><td>${esc(r.why || '')}</td><td>${Math.round(r.end != null ? r.end - r.t : r.m)}분${r.end == null ? ' 예상' : ''}</td><td><span class="tag ${r.end == null ? 'bad' : 'ok'}">${r.end == null ? '조치 중' : '완료'}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="hint">아직 정지가 없습니다.</p>'}
+    <p class="hint"><b>읽는 법</b> — 생산관리는 이 화면으로 하루를 봅니다. 가동률은 라인이 멈추지 않은 시간의 비율, 성능은 서 있지 않은 시간에 택트대로 차가 나왔는지, 품질은 수정 없이 한 번에 통과한 비율입니다. 셋을 곱한 OEE가 85%를 넘으면 세계적 수준이라고 부릅니다.${first.length ? ' <b>노트에 추가: ' + first.join(', ') + '</b>' : ''}</p>
+    <div class="acts"><button class="btn pri" data-act="x" data-primary>닫기</button></div>`, { wide: true, esc: true, board: 1, on() { closeModal(); renderAll(); } });
+}
 function newState(name, job, look) {
   return { name, job, look: look || [1, 1, 0, 0, 0], day: 1, min: 480, speed: 1, paused: false, zone: 'office', px: 250, py: 250,
     stats: { sk: 10, tr: 30, en: 80, pf: 0 }, plant: { q: 92, sf: 85, up: 80 },
@@ -139,7 +283,8 @@ function newState(name, job, look) {
     lunch: false, ate: false, tray: false, insight: 0, lunches: 0, incOk: 0, incMiss: 0,
     peers: { p1: 15, p2: 15, p3: 15 }, pscore: { p1: 13, p2: 14, p3: 12 }, peerTalk: {}, msgs: [], unread: {}, favorDay: 0, chatS: [], chatUsed: {}, lunchWith: 0, th: 'peers',
     auto: false, ach: {}, tables: {}, sparks: 0, perfect: 0, grades: [], fit: 0, dInc: [0, 0], pspeed: 0, eve: [0, 0, 0, 0],
-    notes: {}, qz: {}, qstat: [0, 0], order: 0, orderDone: {}, newsUsed: {}, dfx: {}, target: TARGET, tourSkip: false, newNotes: 0, news: null };
+    notes: {}, qz: {}, qstat: [0, 0], order: 0, orderDone: {}, newsUsed: {}, dfx: {}, target: TARGET, tourSkip: false, newNotes: 0, news: null,
+    prodHist: [], shopDay: newShopDay(), dayStops: [] };
 }
 function prefill() {
   LN = SHOPS.map(k => ({ k, u: [], buf: [], stop: 0, at: null, why: '', blocked: false }));
@@ -150,6 +295,7 @@ function homeNpcs() { for (const n of NP) { n.z = n.hz; n.x = n.hx; n.y = n.hy; 
 
 /* ---------- 소리 ---------- */
 const AU = { ctx: null, master: null, muted: false, amb: null, nb: null };
+try { AU.muted = localStorage.getItem('fdu-mute') === '1'; } catch (e) {}
 function initAudio() {
   if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
   try {
@@ -242,6 +388,9 @@ const menuOf = () => MENUS[(S.day - 1) % MENUS.length];
 /* ---------- 라인 시뮬레이션 ---------- */
 function stopLine(k, min, at, why, quiet) {
   const L = LN[SHOPS.indexOf(k)]; L.stop += min; if (at && STMAP[k][at]) L.at = at; L.why = why || L.why;
+  if (S.shopDay && S.shopDay[k]) S.shopDay[k].stops++;
+  if (S.dayStops) S.dayStops.push({ t: S.min, k, at: L.at, why: L.why, m: min, end: null });
+  twSend('stop', { shop: k, station: L.at || null, why: L.why || null, mins: r1(min) });
   postMsg('ops', '생산 상황실', `${ZONES[k].full} 라인 정지 · ${why}`);
   if (!quiet) { log(`${ZONES[k].full} 라인 정지: ${why} (약 ${Math.round(min)}분)`, 'bad'); SFX.alarm(); if (S.zone === k) shake(2); }
 }
@@ -254,17 +403,21 @@ function simLines(dt) {
   if (S.lunch) return;
   for (let i = 3; i >= 0; i--) {
     const L = LN[i];
-    if (L.stop > 0) { L.stop -= dt; S.down += dt; if (L.stop <= 0) { L.stop = 0; L.at = null; log(`${ZONES[L.k].full} 라인 재가동`, 'ok'); postMsg('ops', '생산 상황실', `${ZONES[L.k].full} 라인 재가동`); } continue; }
+    if (L.stop > 0) { L.stop -= dt; S.down += dt; if (S.shopDay && S.shopDay[L.k]) S.shopDay[L.k].down += dt; if (L.stop <= 0) { L.stop = 0; L.at = null; log(`${ZONES[L.k].full} 라인 재가동`, 'ok'); postMsg('ops', '생산 상황실', `${ZONES[L.k].full} 라인 재가동`); twSend('restart', { shop: L.k }); if (S.dayStops) for (const r of S.dayStops) if (r.k === L.k && r.end == null) r.end = S.min; } continue; }
     L.blocked = false;
     while (L.u.length && L.u[0].d >= PLEN) {
       if (i === 3) { L.u.shift(); shipCar(); }
       else if (LN[i + 1].buf.length < BUF) LN[i + 1].buf.push(L.u.shift());
       else { L.blocked = true; break; }
     }
-    for (let k = 0; k < L.u.length; k++) { const u = L.u[k], max = k === 0 ? PLEN : L.u[k - 1].d - GAP; if (u.d < max) u.d = Math.min(max, u.d + V * dt); }
-    const last = L.u[L.u.length - 1];
-    if (!last || last.d >= GAP) {
-      const d0 = last ? Math.max(0, last.d - GAP) : 0;
+    const v = GAP / CT[L.k];   // 공장마다 속도가 다르다
+    for (let k = 0; k < L.u.length; k++) { const u = L.u[k], max = k === 0 ? PLEN : L.u[k - 1].d - GAP; if (u.d < max) u.d = Math.min(max, u.d + v * dt); }
+    // 실제 컨베이어: 투입 칸이 CT마다 한 번 열린다. 그때 실을 차가 없으면 빈 칸으로 흘려보낸다(앞당겨 메우지 않음)
+    if (L.ph == null) { const lt = L.u[L.u.length - 1]; L.ph = lt ? clamp(lt.d, 0, GAP) : GAP; }
+    L.ph += v * dt;
+    while (L.ph >= GAP) {
+      L.ph -= GAP; const last = L.u[L.u.length - 1], d0 = L.ph;
+      if (last && last.d - d0 < GAP - 0.5) continue;   // 앞차가 아직 안 비켜서(뒤 공정 밀림) 이번 칸은 못 쓴다 (0.5는 소수점 오차 여유)
       if (i === 0) L.u.push({ d: d0, c: pick(COLORS) });
       else if (L.buf.length) { const u = L.buf.shift(); u.d = d0; L.u.push(u); }
     }
@@ -283,9 +436,10 @@ function uptime() { const el = Math.max(1, S.min <= 720 ? S.min - 480 : S.min < 
 
 /* ---------- 하루 ---------- */
 function startDay() {
-  const J = JOBS[S.job]; S.min = 480; S.prod.today = 0; S.prod.ftt = 0; S.down = 0; S.today = []; S.jobEv = false; S.work = null; S.lowWarn = false; S.paused = false;
+  const J = JOBS[S.job]; S.min = 480; S.prod.today = 0; S.prod.ftt = 0; S.down = 0; fixTwinState(S); S.shopDay = newShopDay(); S.dayStops = []; UI.phase = null; S.today = []; S.jobEv = false; S.work = null; S.lowWarn = false; S.paused = false;
   S.lunch = false; S.ate = false; S.tray = false; S.inc = null;
   // 오늘의 뉴스: 산업과 회사 소식이 그날 공장에 실제로 영향을 준다
+  if (!S.ctDay || S.ctDay.day !== S.day) S.ctDay = rollCT(); applyCT(S.ctDay);
   S.dfx = {}; S.news = null; S.target = TARGET;
   if (S.day > 1) { let pool = NEWSD.map((n, i) => i).filter(i => !S.newsUsed[i]); if (!pool.length) { S.newsUsed = {}; pool = NEWSD.map((n, i) => i); } const ni = pick(pool), nw = NEWSD[ni]; S.newsUsed[ni] = 1; S.news = ni; S.dfx = nw[3]; S.target = TARGET + (nw[3].t || 0); learn(nw[4], true); postMsg('news', '사내 뉴스', `<b>${nw[0]}</b> · ${nw[1]} ${nw[2]}`); }
   buildTasks();
@@ -300,12 +454,14 @@ function startDay() {
   LN.forEach(L => { L.stop = Math.min(L.stop, 5); });
   homeNpcs();
   S.dayStart = { ...S.stats };
-  try { localStorage.setItem(SAVE, JSON.stringify(S)); } catch (e) {}
+  if (!S.demo) try { localStorage.setItem(SAVE, JSON.stringify(S)); } catch (e) {}   // 시연은 내 저장 기록을 덮어쓰지 않는다
   postMsg('n15', PNAME.n15, TIPS[(S.day - 1) % TIPS.length]);
-  renderAll(); briefing();
+  twSend('dayStart', { target: S.target, news: S.news != null && NEWSD[S.news] ? NEWSD[S.news][0] : null, ct: { ...CT }, ctWhy: { ...S.ctDay.why }, bottleneck: bottleneck() });
+  { const b = bottleneck(); postMsg('n12', PNAME.n12, `오늘 라인 속도 공유드려요. 병목은 ${ZONES[b].full}(${CT[b].toFixed(2)}분/대, ${S.ctDay.why[b]})입니다. ${SHOPS.filter(k => k !== b && Math.abs(CT[k] / CT0[k] - 1) >= 0.03).map(k => `${ZONES[k].n} ${ctPct(k)}`).join(', ') || '나머지 공장은 평소와 비슷합니다'}.`); }
+  renderAll(); if (S.demo) { log(`${S.day}일차 출근 (시연)`, 'ok'); SFX.chime(); } else briefing();
 }
 function buildTasks() {
-  const J = JOBS[S.job], mk = (t, o) => ({ t: t[0], z: t[1], s: t[1] === 'office' && t[2] === 'desk' ? HOMEP.id : t[2], m: t[3], left: t[3], learn: t[4], done: false, sp: rnd(0.3, 0.65), ...o }), jt = [0, 1, 2].map(i => J.tasks[((S.day - 1) * 3 + i) % J.tasks.length]);
+  const J = JOBS[S.job], mk = (t, o) => ({ t: t[0], z: t[1], s: t[1] === 'office' && t[2] === 'desk' ? HOMEP.id : t[2], m: t[3], left: t[3], learn: t[4], w: t[5], v: t[6], done: false, sp: rnd(0.3, 0.65), ...o }), NJ = J.tasks.length, half = Math.ceil(NJ / 2), ord = i => (i % NJ) % 2 ? half + ((i % NJ) >> 1) : (i % NJ) >> 1, jt = [0, 1, 2].map(i => J.tasks[ord((S.day - 1) * 3 + i)] || J.tasks[0]);   // 원래 업무와 새 업무가 번갈아 나온다
   const report = mk(['일일 업무 보고 작성', 'office', 'desk', 20, '오늘 한 일, 내일 할 일, 도움이 필요한 것. 세 줄이면 충분하다.'], { kind: 'report', from: 930 });
   if (S.day === 1 && !S.tourSkip) {
     // 첫날: 멘토와 공장을 한 바퀴 돈 뒤 오후에 첫 업무를 받는다
@@ -323,6 +479,7 @@ function briefing() {
   const due = S.queue.some(q => q.day <= S.day), tour = S.tasks.some(t => t.kind === 'tour'), nw = S.news != null ? NEWSD[S.news] : null, od = S.tasks.find(t => t.kind === 'order');
   const first = S.day === 1 ? `<p>${esc(S.name)} 님, 입사를 환영합니다. 오늘부터 ${DAYS}일 동안 <b>${CODEX[S.job].n}</b> 신입사원으로 일합니다. ${tour ? '오전에는 멘토 채은성 책임과 공장을 한 바퀴 돕니다. 차 한 대가 만들어지는 순서 그대로 걸어요.' : ''} 보고 들은 것은 노트(<kbd>N</kbd>)에 쌓이고, 퇴근할 때 짧은 퀴즈로 확인합니다.</p>` : '';
   openModal(`<p class="eyebrow">${S.day}일차 ${WD[(S.day - 1) % 5]}요일 · 08:00 아침 조회</p><h2>${S.day === 1 ? '첫 출근' : '오늘의 업무'}</h2>${first}
+    ${ctTable()}
     ${nw ? `<div class="newsbox"><small>오늘의 뉴스</small><b>${nw[0]}</b><p>${nw[1]}</p><p class="imp">${nw[2]}</p></div>` : ''}
     <ol class="brief">${tour ? `<li><b>공장 투어 ${TOUR.length}곳</b><span>사무동 상황실 → 프레스 → 차체 → 도장 → 의장 → 검사. 노란 표시를 따라가면 됩니다</span></li><li><b>첫 업무 1건과 일일 보고</b><span>오후에 내려옵니다</span></li>` : S.tasks.filter(t => t.from !== 780 && !t.opt).map(t => `<li><b>${t.t}</b><span>${t.to ? hhmm(t.to) + '까지 · ' : ''}${t.from ? hhmm(t.from) + '부터 · ' : ''}${ZONES[t.z].full} · ${STMAP[t.z][t.s].n} · ${t.m}분</span></li>`).join('') + '<li><b>오후 업무 2건</b><span>13:00에 팀장님이 메신저로 내려보냅니다</span></li>'}</ol>
     ${od ? `<p class="hint"><b>선택 · ${od.t}</b> — 주문 한 대가 회사를 어떻게 지나가는지 따라가는 일입니다. 안 해도 평가에는 영향이 없습니다.</p>` : ''}
@@ -332,7 +489,7 @@ function briefing() {
       closeModal(); SFX.chime(); log(`${S.day}일차 출근`, 'ok'); if (S.tasks.some(t => t.kind === 'tour')) guideTo(0);
     } });
 }
-function advance(dt) { while (dt > 0 && !UI.modal) { const s = Math.min(dt, 2); step(s); dt -= s; } }
+function advance(dt) { while (dt > 0 && !UI.modal) { const s = Math.min(dt, 0.2); step(s); dt -= s; } }   // 0.2분씩 끊어 배속과 상관없이 택트 유지
 function step(dt) {
   const before = S.min; S.min += dt; simLines(dt);
   S.zoneMin[S.zone] = (S.zoneMin[S.zone] || 0) + dt;
@@ -486,14 +643,16 @@ const costText = (min, fx) => [min ? `시간 ${min}분` : '', fx && fx.en ? `컨
 function spawnInc() {
   let pool = INCS.filter(d => !S.incUsed[d.id]); if (!pool.length) { S.incUsed = {}; pool = INCS; }
   const d = pick(pool), X = INCX[d.id]; S.incUsed[d.id] = 1; S.inc = { id: d.id, until: Math.min(S.min + d.m, 1015), mode: null };
-  if (d.stop) { const L = LN[SHOPS.indexOf(d.stop)]; L.stop = Math.max(L.stop, d.m + 8); L.at = d.s; L.why = d.t; }
+  if (d.stop) { const L = LN[SHOPS.indexOf(d.stop)], was = L.stop; L.stop = Math.max(L.stop, d.m + 8); L.at = d.s; L.why = d.t; if (S.shopDay && S.shopDay[d.stop]) S.shopDay[d.stop].stops++; if (S.dayStops) S.dayStops.push({ t: S.min, k: d.stop, at: L.at, why: d.t, m: L.stop - Math.max(0, was), end: null }); twSend('stop', { shop: d.stop, station: L.at || null, why: d.t, mins: r1(L.stop - Math.max(0, was)) }); }
   const opts = X.o.map(o => [o[0], o[1], 0, o[1] === 'go' ? `${ZONES[d.z].full}까지 걸어가야 함` : (costText(o[2], o[3]) || '시간 0분')]);
   const fav = S.favorDay !== S.day && Object.keys(S.peers).filter(k => S.peers[k] >= 30).sort((a, b) => S.peers[b] - S.peers[a])[0];
   if (fav) opts.push([`동기 ${PNAME[fav]}에게 대신 가 봐 달라고 부탁한다`, 'fav', fav, '하루 한 번 · 친밀도 −6']);
   postMsg(X.from, PNAME[X.from], X.m, { kind: 'inc', inc: d.id, opts });
   SFX.urgent(); log(`급한 연락: ${PNAME[X.from]} · ${d.t}`, 'bad'); toast(`메신저 · ${PNAME[X.from]}: 급한 연락입니다 (Q)`, 'bad'); renderAlerts(); renderZones();
 }
+const INCNOTE = { i14: 'late', i15: 'supq', i16: 'supq', i17: 'late', i18: 'fair' };
 function settleInc(d, th, text, chips, left) {
+  if (INCNOTE[d.id]) { const g = learn(INCNOTE[d.id], true); if (g.length) chips.push(`<span class="chip up">노트 · ${g[0]}</span>`); }
   if (d.stop) { const L = LN[SHOPS.indexOf(d.stop)]; L.stop = Math.min(L.stop, left == null ? 6 : left); }
   S.inc = null; S.incOk++; S.dInc[0]++; postMsg(th, '', text + (chips.length ? ` (${chipText(chips)})` : ''), { sys: 1 }); log(`급한 연락 처리: ${d.t}`, 'ok'); renderAlerts(); renderZones();
 }
@@ -564,6 +723,12 @@ function endDay() {
   const must = S.tasks.filter(t => !t.opt), NTd = must.length, undone = must.filter(t => !t.done).length, done = NTd - undone, hit = S.prod.today >= S.target;
   const sc = done / NTd * 72 + S.dInc[0] * 8 - S.dInc[1] * 8 + (S.ate ? 6 : 0) + (hit ? 4 : 0), g = sc >= 84 ? 'S' : sc >= 64 ? 'A' : sc >= 44 ? 'B' : 'C';
   S.grades.push(g); if (!undone) S.perfect = 1;
+  try {   // 오늘 실적을 날짜별로 남긴다 (같은 날을 다시 하면 덮어쓴다)
+    fixTwinState(S); const shops = {}; for (const k in S.shopDay) shops[k] = { down: r1(S.shopDay[k].down), stops: S.shopDay[k].stops };
+    const row = { day: S.day, prod: S.prod.today, ftt: S.prod.ftt, target: S.target, hit, down: r1(S.down), uptime: r1(uptime()), shops, grade: g, ct: { ...CT }, bottleneck: bottleneck() };
+    S.prodHist = S.prodHist.filter(r => r.day !== S.day).concat(row); twSend('dayEnd', row);
+  } catch (e) {}
+  UI.phase = '결산';
   const d = k => { const v = Math.round(S.stats[k] - S.dayStart[k]); return `<span class="chip ${v > 0 ? 'up' : v < 0 ? 'dn' : ''}">${STAT[k]} ${v >= 0 ? '+' : '−'}${Math.abs(v)}</span>`; };
   const ot = must.find(t => !t.done && !t.miss);
   openModal(`<p class="eyebrow">${S.day}일차 ${WD[(S.day - 1) % 5]}요일 · 17:00 퇴근 시간</p>
@@ -583,6 +748,7 @@ function endDay() {
 }
 const EVE = [['집에서 푹 쉰다', '아무것도 하지 않는 저녁. 내일을 위한 투자다.', { en: 12 }], ['사내 온라인 강의를 듣는다', '품질 관리 기초 2강. 졸음과 싸우며 끝까지 들었다.', { sk: 2, en: 2 }], ['동기들과 저녁을 먹는다', '국밥집에서 각자 하루를 털어놓았다. 다들 비슷하게 헤매고 있다.', { fr: 3, en: 5 }], ['운동한다', '회사 체육관에서 40분. 내일은 발걸음이 가볍다. (다음 날 걷는 속도 +20%)', { en: 6 }]];
 function evening() {
+  UI.phase = '저녁';
   openModal(`<p class="eyebrow">퇴근 후</p><h2>오늘 저녁은 어떻게 보낼까</h2>
     <div class="choices">${EVE.map((e, i) => `<button class="choice" data-act="e${i}" data-key="${i + 1}"><kbd>${i + 1}</kbd><span>${e[0]}<em class="cmeta">${i === 3 ? '컨디션 +6 · 내일 걷는 속도 +20%' : chipText(Object.keys(e[2]).map(k => `<i>${STAT[k]} +${e[2][k]}</i>`))}</em></span></button>`).join('')}</div>`,
     { on(a) { const i = +a.slice(1), e = EVE[i]; fxApply(e[2]); S.eve[i]++; if (i === 3) S.fit = S.day; log(`어제 저녁: ${e[0]}`); SFX.neutral(); closeModal(); startDay(); } });
@@ -649,7 +815,7 @@ function quiz(then) {
   if (!pool.length) { then(); return; }
   const ask = () => {
     if (i >= pool.length) { then(); return; }
-    const q = pool[i];
+    const q = pool[i]; UI.phase = '퀴즈';
     openModal(`<p class="eyebrow">퇴근길 퀴즈 ${i + 1}/${pool.length} · ${NCAT[KB[q[0]][0]][0]}</p><h2>${q[1]}</h2>
       <div class="choices">${q[2].map((o, k) => `<button class="choice" data-act="q${k}" data-key="${k + 1}"><kbd>${k + 1}</kbd><span>${o}</span></button>`).join('')}</div><p class="hint">오늘까지 노트에 쌓인 내용에서 나옵니다. 맞히면 역량이 오르고 그 주제의 이해도가 올라갑니다.</p>`, { on(a) {
         const k = +a.slice(1), ok = k === q[3]; S.qstat[1]++; let chips = [];
@@ -669,6 +835,7 @@ function ending() {
   const top = Object.entries(S.gain).sort((a, b) => b[1] - a[1])[0][0];
   const style = { sk: '배우는 데 시간을 쓴 사람', tr: '사람을 먼저 얻은 사람', pf: '결과로 말한 사람' }[top];
   const fus = S.hist.filter(h => h.fu), C = CODEX[S.job], rank = 1 + Object.values(S.pscore).filter(v => v > total).length, best = Object.keys(S.peers).sort((a, b) => S.peers[b] - S.peers[a])[0];
+  UI.phase = '결산';
   openModal(`<p class="eyebrow">${DAYS}일차 종료 · 수습 평가</p>
     <div class="grade"><span class="g">${g[0]}</span><div><h2>${g[1]}</h2><p>${g[2]}</p></div></div>
     <div class="tiles"><div><b>${Math.round(s.sk)}</b><span>역량</span></div><div><b>${Math.round(s.tr)}</b><span>신뢰</span></div><div><b>${Math.round(s.pf)}</b><span>성과</span></div><div><b>${S.prod.total}</b><span>함께 만든 차</span></div></div>
@@ -710,6 +877,7 @@ function goLunch() {
 }
 function interact(o) {
   if (!o) return;
+  if (o.k === 'board') { openBoard(); return; }
   if (o.k === 'st') {
     const st = STMAP[S.zone][o.id]; if (!st) return; const ti = taskAt(S.zone, o.id);
     if (st.k === 'bldg') { startTrip(st.id); return; }
@@ -727,7 +895,7 @@ function interact(o) {
   } else {
     const n = NP.find(n => n.id === o.id); if (!n || n.z !== S.zone) return; const first = !S.met[n.id];
     if (first) { S.met[n.id] = 1; S.stats.tr = clamp(S.stats.tr + 1, 0, 100); S.gain.tr += 1; log(`${n.n}(${n.r})와 인사했다.`); noteJob(n.j); if (NPCNOTE[n.id]) learn(NPCNOTE[n.id], true); }
-    CAM.talk = n;
+    CAM.talk = n; n.face = UI.t + 6; ME.vyaw = null;   // 말을 걸면 서로 마주 본다
     if (n.peer && S.peerTalk[n.id] !== S.day) { S.peerTalk[n.id] = S.day; S.peers[n.id] = clamp(S.peers[n.id] + 2, 0, 100); }
     const k = S.talk[n.id] || 0; let line;
     if (n.mode === 'eat') line = LUNCH[n.id][k % 2];
@@ -746,7 +914,7 @@ function showCard(eye, title, text, extra = '') {
 function hideCard() { $('#card').hidden = true; UI.cardAt = null; CAM.talk = null; }
 
 /* ---------- 모달 ---------- */
-function openModal(html, opt = {}) { $('#dlg').innerHTML = html; $('#dlg').className = 'dlg' + (opt.wide ? ' wide' : ''); $('#modal').hidden = false; UI.modal = opt; UI.keys = {}; const f = $('#dlg [data-primary]') || $('#dlg button'); if (f) f.focus(); $('#dlg').scrollTop = 0; setAmb(); }
+function openModal(html, opt = {}) { unlockMouse(); $('#dlg').innerHTML = html; $('#dlg').className = 'dlg' + (opt.wide ? ' wide' : ''); $('#modal').hidden = false; UI.modal = opt; UI.keys = {}; const f = $('#dlg [data-primary]') || $('#dlg button'); if (f) f.focus(); $('#dlg').scrollTop = 0; setAmb(); }
 function closeModal() { $('#modal').hidden = true; UI.modal = null; setAmb(); const m = UI.after; UI.after = 0; if (m && S) advance(m); }
 function openCodex(focus, back) {
   if (UI.modal && !back) return;
@@ -763,7 +931,7 @@ function openHelp() {
   if (UI.modal) return;
   openModal(`<p class="eyebrow">도움말</p><h2>이렇게 일합니다</h2>
     <p class="desc">하루는 08:00에 시작해 17:00에 끝납니다. 업무는 하루 여섯 건입니다. 아침 회의(09:35까지), 오전 직무 업무 둘, 13:00에 내려오는 오후 업무 둘, 15:30부터 쓰는 일일 보고. 업무 중에는 시간이 빨리 가고, 느낌표가 뜰 때 <kbd>E</kbd>를 누르면 이상한 점을 찾아내 보너스를 얻습니다. 구내 도로에서는 자전거를 타 더 빨리 움직입니다. 하루 중 그 사이 터지는 사건에 결정을 내립니다. 공장 사이는 구내 도로를 걸어서 다니고, 컨베이어는 건너지 못해 라인 끝을 돌아갑니다. 12시에는 모두 구내식당으로 갑니다. 급한 연락은 메신저로 옵니다. 제한 시간 안에 열어서 어떻게 대처할지 답해야 하고, 직접 가겠다고 했으면 그 자리까지 걸어가야 합니다.</p>
-    <div class="keys"><div><kbd>1</kbd>–<kbd>6</kbd><span>프레스 · 차체 · 도장 · 의장 · 사무동 · 식당으로 걸어가기</span></div><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>직접 걷기 (W는 화면 안쪽). 화면을 누르면 길을 찾아 걸어감</span></div><div><kbd>E</kbd><span>살펴보기 · 업무 시작 · 대화 · 돌발 대응</span></div><div><kbd>T</kbd><span>다음 업무 장소로 걸어가기</span></div><div><kbd>F</kbd><span>자동 진행 켜기/끄기</span></div><div><kbd>+</kbd><kbd>−</kbd><span>확대·축소 (휠도 됨). 확대하면 카메라가 나를 따라옴</span></div><div><kbd>[</kbd><kbd>]</kbd><span>시점 돌리기 (화면을 끌어도 됨)</span></div><div><kbd>P</kbd><span>1인칭 ↔ 3인칭 (내 눈높이로 보기)</span></div><div><kbd>Home</kbd><span>3인칭 ↔ 전체 보기</span></div><div><kbd>G</kbd><span>업적</span></div><div><kbd>Q</kbd><span>메신저 열기</span></div><div><kbd>R</kbd><span>급한 연락 확인 · 약속한 장소로 걸어가기</span></div><div><kbd>Space</kbd><span>일시정지</span></div><div><kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd><span>시간 속도 1 · 2 · 4 · 8배</span></div><div><kbd>N</kbd><span>지식 노트 · 이해도 · 회사 지도</span></div><div><kbd>J</kbd><span>직무 도감</span></div><div><kbd>M</kbd><span>소리 켜기/끄기</span></div><div><kbd>H</kbd><span>도움말</span></div></div>
+    <div class="keys"><div><kbd>1</kbd>–<kbd>6</kbd><span>프레스 · 차체 · 도장 · 의장 · 사무동 · 식당으로 걸어가기</span></div><div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>직접 걷기 (W는 화면 안쪽). 화면을 누르면 길을 찾아 걸어감</span></div><div><kbd>E</kbd><span>살펴보기 · 업무 시작 · 대화 · 돌발 대응</span></div><div><kbd>T</kbd><span>다음 업무 장소로 걸어가기</span></div><div><kbd>F</kbd><span>자동 진행 켜기/끄기</span></div><div><kbd>+</kbd><kbd>−</kbd><span>확대·축소 (휠도 됨). 확대하면 카메라가 나를 따라옴</span></div><div><kbd>[</kbd><kbd>]</kbd><span>시점 돌리기 (화면을 끌어도 됨)</span></div><div><kbd>P</kbd><span>1인칭 ↔ 3인칭 (내 눈높이로 보기)</span></div><div><kbd>O</kbd><span>옵션: 마우스 시점(따라가기·끌기), 민감도, 화질, 소리</span></div><div><kbd>Home</kbd><span>3인칭 ↔ 전체 보기</span></div><div><kbd>G</kbd><span>업적</span></div><div><kbd>Q</kbd><span>메신저 열기</span></div><div><kbd>R</kbd><span>급한 연락 확인 · 약속한 장소로 걸어가기</span></div><div><kbd>Space</kbd><span>일시정지</span></div><div><kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd><span>시간 속도 1 · 2 · 4 · 8배</span></div><div><kbd>N</kbd><span>지식 노트 · 이해도 · 회사 지도</span></div><div><kbd>B</kbd><span>생산 현황판 (사무동 상황실 벽 스크린에서도 볼 수 있음)</span></div><div><kbd>J</kbd><span>직무 도감</span></div><div><kbd>M</kbd><span>소리 켜기/끄기</span></div><div><kbd>H</kbd><span>도움말</span></div></div>
     <h3>현장 용어</h3>
     <dl class="terms"><dt>UPH</dt><dd>시간당 생산 대수. 이 게임의 라인은 실제의 약 6분의 1로 줄인 모형입니다.</dd><dt>택트타임</dt><dd>차 한 대가 한 공정에 머무는 시간. 작업은 이 안에 끝나야 합니다.</dd><dt>직행률</dt><dd>수정 없이 한 번에 합격한 차의 비율.</dd><dt>안돈</dt><dd>이상이 생기면 작업자가 라인을 세우고 알리는 호출 장치.</dd><dt>BIW</dt><dd>도장 전의 용접된 차체 뼈대.</dd><dt>서열</dt><dd>라인에 들어오는 차 순서대로 부품을 맞춰 공급하는 방식.</dd></dl>
     <div class="acts"><button class="btn pri" data-act="x" data-primary>닫기</button></div>`, { wide: true, esc: true, on() { closeModal(); } });
@@ -814,7 +982,7 @@ function renderTasks() {
 }
 function renderAndon() {
   const ft = S.prod.today ? Math.round(100 * S.prod.ftt / S.prod.today) : Math.round(S.plant.q);
-  $('#andon').innerHTML = `<div><b>${S.prod.today}<small>/${S.target}</small></b><span>오늘 생산</span></div><div class="${ft < 85 ? 'warn' : ''}"><b>${ft}<small>%</small></b><span>직행률</span></div><div class="${uptime() < 85 ? 'warn' : ''}"><b>${Math.round(uptime())}<small>%</small></b><span>가동률</span></div><div class="${S.plant.sf < 70 ? 'warn' : ''}"><b>${Math.round(S.plant.sf)}</b><span>안전지수</span></div>`;
+  $('#andon').innerHTML = `<div><b>${S.prod.today}<small>/${S.target}</small></b><span>오늘 생산</span></div><div class="${ft < 85 ? 'warn' : ''}"><b>${ft}<small>%</small></b><span>직행률</span></div><div class="${uptime() < 85 ? 'warn' : ''}"><b>${Math.round(uptime())}<small>%</small></b><span>가동률</span></div><div class="${S.plant.sf < 70 ? 'warn' : ''}"><b>${Math.round(S.plant.sf)}</b><span>안전지수</span></div><div class="wide"><b>${ZONES[bottleneck()].n} ${CT[bottleneck()].toFixed(1)}<small>분/대</small></b><span>오늘의 병목 · 택트</span></div>`;
 }
 function renderLog() { $('#log').innerHTML = S.log.slice(0, 40).map(l => `<li class="${l.k}"><time>${l.t}</time>${esc(l.m)}</li>`).join(''); }
 
@@ -829,7 +997,7 @@ const mix = (c, f) => c.map(v => Math.round(f >= 0 ? v + (255 - v) * f : v * (1 
 const css = (c, a = 1) => `rgba(${c[0]},${c[1]},${c[2]},${a})`;
 function readPalette() {
   const cs = getComputedStyle(document.documentElement), g = n => cs.getPropertyValue(n).trim();
-  P = { bg: g('--bg'), floor: g('--floor'), grid: g('--grid'), conv: g('--conv'), mark: g('--conv-mark'), mach: g('--mach'), hi: g('--mach-hi'), ink: g('--ink'), muted: g('--muted'), accent: g('--accent'), ok: g('--ok'), warn: g('--warn'), bad: g('--bad'), panel: g('--panel'), line: g('--line'), room: g('--room'), pri: g('--pri') };
+  P = { bg: g('--bg'), floor: g('--floor'), grid: g('--grid'), conv: g('--conv'), mark: g('--conv-mark'), mach: g('--mach'), hi: g('--mach-hi'), ink: g('--ink'), muted: g('--muted'), accent: g('--accent'), ok: g('--ok'), warn: g('--warn'), bad: g('--bad'), panel: g('--panel'), line: g('--line'), room: g('--room'), pri: g('--pri'), panel2: g('--panel2') };
   RGBC = {}; K = {}; for (const k in P) K[k] = hexRgb(P[k]);
 }
 const Q = { mode: 'auto', lv: 2, ms: 16, bad: 0 }, QN = ['낮음', '중간', '높음'], RM = !!(matchMedia('(prefers-reduced-motion: reduce)') || {}).matches;
@@ -1160,6 +1328,7 @@ function person3d(p, o = {}) {
     if (hs === 4) fr(-7.4, 0, hz + 2, 1.5, 2, 2.5, hc);
     if (hs === 7) obox(p.x, p.y, hz + 9, 2.2, 2.2, 2, yaw, hc);
   }
+  if (o.pad) { fr(7.5, 0, z0 + 4, 0.6, 4.2, 3.2, C3.dark); fr(7.9, 0, z0 + 4.2, 0.2, 3.6, 2.6, K.accent); }
   if (o.tray) { fr(8, 0, z0 + 2, 4, 6.5, 0.6, C3.white); fr(8, -2.5, z0 + 3, 1.5, 1.5, 0.6, FOOD[0]); fr(8, 2.5, z0 + 3, 1.5, 1.5, 0.6, FOOD[8]); }
 }
 
@@ -1282,6 +1451,7 @@ function st3d(s, z, run, t, L, SPK) {
     const rp = roomParts(s), tall = s.id === 'mes' ? 56 : 30;
     for (const w of rp.walls) {
       box(w[0], w[1], 0, w[2], w[3], tall, K.line);
+      if (s.id === 'mes' && w[1] === y0 && w[0] === x0) boardDraw(t);
       if (s.id === 'mes' && w[1] === y0 && w[0] > x0) for (let q = 0; q < 3; q++) { const a = w[0] + 6 + q * 40; if (a + 34 > w[2]) break; vqY(a, a + 34, w[3] + 0.5, 20, 46, C3.screen, 1, 4); const cc = [K.ok, K.accent, K.bad][(q + Math.floor(t / 3)) % 3], hh = 6 * Math.abs(Math.sin(t + q)); vqY(a + 4, a + 30, w[3] + 0.8, 26 + hh, 29 + hh, cc, 1, 6); }
     }
     for (const [a, b, c, d, kind] of rp.furn) {
@@ -1418,7 +1588,7 @@ function guide(z, t) {
     }
   }
   // 미니맵
-  const mw = VW < 560 ? 112 : 168, k = mw / W, mh = H * k, x0 = 12, y0 = 28, X = x => x0 + x * k, Y = y => y0 + y * k;
+  const mw = VW < 560 || VH < 360 ? 112 : 168, k = mw / W, mh = H * k, x0 = 12, y0 = 28, X = x => x0 + x * k, Y = y => y0 + y * k;
   cx.globalAlpha = 0.9; rr(x0 - 3, y0 - 17, mw + 6, mh + 20, 6, P.panel, P.line); cx.globalAlpha = 1;
   cx.fillStyle = P.muted || P.ink; cx.font = '600 10px "IBM Plex Sans KR", system-ui, sans-serif'; cx.textAlign = 'left'; cx.textBaseline = 'middle'; cx.fillText(ZONES[z].full, x0 + 2, y0 - 8);
   cx.fillStyle = P.floor; cx.fillRect(x0, y0, mw, mh);
@@ -1456,16 +1626,26 @@ function draw() {
     if (s.k === 'manual') for (let i = 20, k = 0; i < s.w; i += 58, k++) { const x0 = s.x - s.w / 2; person3d({ x: x0 + i + 24, y: s.y - 30, L: [k % 3, (k * 3) % 7, k % 2, 0, 0], c: 0, ry: Math.PI / 2 }, { lod: 1, work: run }); person3d({ x: x0 + i, y: s.y + 30, L: [(k + 1) % 3, (k * 5 + 1) % 7, (k + 1) % 3, 0, 0], c: 0, ry: -Math.PI / 2 }, { lod: 1, work: run }); }
     else if (s.k === 'bench') person3d({ x: s.x + 30, y: s.y + 40, L: [1, 0, 0, 0, 0], c: 0, ry: -Math.PI / 2 }, { work: run });
   }
-  for (const n of NP) if (n.z === z) { if (n.mv || n.ry == null || n.mode === 'eat') n.ry = YAW[n.dir] ?? Math.PI / 2; person3d(n, { sit: n.mode === 'eat', lod: Q.lv < 2 && Math.hypot(n.x - CM.pos[0], n.y - CM.pos[1]) > (Q.lv ? 620 : 420) }); }
-  const tyaw = YAW[ME.dir] ?? Math.PI / 2; if (ME.yaw == null) ME.yaw = tyaw; if (ME.mv || UI.sit) { let dd = tyaw - ME.yaw; while (dd > Math.PI) dd -= 2 * Math.PI; while (dd < -Math.PI) dd += 2 * Math.PI; ME.yaw += dd * 0.35; }
-  if (!fp) person3d({ x: S.px, y: S.py, L: S.look, c: 1, ry: ME.vyaw ?? ME.yaw, mv: ME.mv, me: true }, { tray: S.tray && !UI.sit && z === 'canteen', sit: UI.sit });
+  const turnTo = (a, b, k) => { let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return a + d * k; };
+  for (const n of NP) if (n.z === z) { const talking = (CAM.talk === n || n.face > UI.t) && !n.mv && n.mode !== 'eat' && n.mode !== 'trip';
+    if (talking) { n.ry = turnTo(n.ry ?? YAW[n.dir] ?? Math.PI / 2, Math.atan2(S.py - n.y, S.px - n.x), 0.18); n.dir = Math.abs(S.px - n.x) > Math.abs(S.py - n.y) ? (S.px > n.x ? 'e' : 'w') : (S.py > n.y ? 's' : 'n'); }
+    else if (n.mv || n.ry == null || n.mode === 'eat') n.ry = YAW[n.dir] ?? Math.PI / 2; person3d(n, { sit: n.mode === 'eat', lod: Q.lv < 2 && Math.hypot(n.x - CM.pos[0], n.y - CM.pos[1]) > (Q.lv ? 620 : 420) }); }
+  const tyaw = YAW[ME.dir] ?? Math.PI / 2; if (ME.yaw == null) ME.yaw = tyaw;
+  { const tk = CAM.talk; if (tk && tk.z === z && !ME.mv && !UI.sit) { ME.vyaw = null; ME.yaw = turnTo(ME.yaw, Math.atan2(tk.y - S.py, tk.x - S.px), 0.2); } } if (ME.mv || UI.sit) { let dd = tyaw - ME.yaw; while (dd > Math.PI) dd -= 2 * Math.PI; while (dd < -Math.PI) dd += 2 * Math.PI; ME.yaw += dd * 0.35; }
+  if (S.work && !ME.mv) { const wz = S.work.inc ? INC[S.inc && S.inc.id] : S.tasks[S.work.i], st = wz && STMAP[z][wz.s]; if (st && st.k !== 'room') { ME.vyaw = null; ME.yaw = turnTo(ME.yaw, Math.atan2(st.y - S.py, st.x - S.px), 0.15); } }
+  if (!fp) person3d({ x: S.px, y: S.py, L: S.look, c: 1, ry: ME.vyaw ?? ME.yaw, mv: ME.mv, me: true }, { tray: S.tray && !UI.sit && z === 'canteen', sit: UI.sit, work: !!S.work && !ME.mv, pad: !!S.work && !ME.mv });
   if (z === 'yard' && !fp) { const a = ME.vyaw ?? ME.yaw, c = Math.cos(a), s = Math.sin(a); for (const f of [-13, 13]) prism(S.px + c * f, S.py + s * f, 0, 1, 6, C3.dark, 8); beam([S.px - c * 13, S.py - s * 13, 4], [S.px + c * 13, S.py + s * 13, 4], 1.6, C3.dark); }
   if (useGL) { const fol = CAM.dist < 860; glRender(fol ? 320 : 1300, fol ? 1400 : 2900); } else paintFaces();
   for (const q of SPK) if (Math.random() < 0.6) { const p = proj(q); if (p[2] < 10) continue; const k = CM.foc / p[2]; cx.strokeStyle = Math.random() < 0.5 ? '#fff3b0' : P.warn; cx.lineWidth = 1.3; cx.beginPath(); for (let i = 0; i < 6; i++) { const a = Math.random() * 7, l = (4 + Math.random() * 10) * k; cx.moveTo(p[0], p[1]); cx.lineTo(p[0] + Math.cos(a) * l, p[1] + Math.sin(a) * l * 0.8); } cx.stroke(); if (Math.random() < 0.04 && !UI.modal) SFX.weld(); }
   overlay(z, L, t); fxDraw(); guide(z, t);
+  if (UI.locked && CAM.fp) { cx.strokeStyle = 'rgba(255,255,255,.9)'; cx.lineWidth = 2; cx.beginPath(); cx.arc(VW / 2, VH / 2, 3, 0, 6.3); cx.stroke(); cx.fillStyle = P.ink; cx.beginPath(); cx.arc(VW / 2, VH / 2, 1.5, 0, 6.3); cx.fill(); }
+  if (MS.mode === 'follow' && !UI.lockFail && !UI.modal) {
+    const msg = UI.locked ? (UI.lockT == null ? (UI.lockT = UI.t, '') : UI.t - UI.lockT < 3 ? '마우스로 둘러보기 · 클릭 = E · Esc로 마우스 풀기' : '') : (UI.lockT = null, UI.lockedOnce ? '화면을 클릭하면 다시 마우스로 둘러봅니다' : '화면을 한 번 클릭하면 마우스를 따라 시선이 움직입니다');
+    if (msg) { cx.font = '600 12px "IBM Plex Sans KR", system-ui, sans-serif'; const w = cx.measureText(msg).width + 20, y = VH - 112; cx.globalAlpha = 0.88; rr(VW / 2 - w / 2, y - 12, w, 24, 12, P.ink); cx.globalAlpha = 1; cx.fillStyle = P.bg; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(msg, VW / 2, y + 1); }
+  }
   if (line && S.lunch) banner('점심시간 · 라인 휴식 · 13:00 재가동', P.ink, P.floor);
   else if (L && L.stop > 0) { cx.strokeStyle = P.bad; cx.lineWidth = 8; cx.globalAlpha = 0.35 + 0.25 * Math.sin(t * 4); cx.strokeRect(4, 4, VW - 8, VH - 8); cx.globalAlpha = 1; banner(`라인 정지 · ${L.why} · 재가동까지 약 ${Math.ceil(L.stop)}분`, P.bad, '#fff'); }
-  if (S.paused && !UI.modal) { cx.font = '400 28px "Do Hyeon", sans-serif'; cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.fillStyle = P.ink; cx.globalAlpha = 0.7; cx.fillText('일시정지', (VW < 560 ? 112 : 168) + 28, 12); cx.globalAlpha = 1; }
+  if (S.paused && !UI.modal) { cx.font = '400 28px "Do Hyeon", sans-serif'; cx.textAlign = 'left'; cx.textBaseline = 'top'; cx.fillStyle = P.ink; cx.globalAlpha = 0.7; cx.fillText('일시정지', (VW < 560 || VH < 360 ? 112 : 168) + 28, 12); cx.globalAlpha = 1; }
   if (UI.fade > 0) { cx.globalAlpha = UI.fade; cx.fillStyle = P.bg; cx.fillRect(0, 0, VW, VH); cx.globalAlpha = 1; }
 }
 function overlay(z, L, t) {
@@ -1474,6 +1654,7 @@ function overlay(z, L, t) {
   for (const id of fl) { const s = STMAP[z][id]; if (!s) continue; const hp = hitPoly(s); if (!hp.length) continue; cx.globalAlpha = 0.4 + 0.6 * Math.abs(Math.sin(t * 5)); polyS(hp, null, null); cx.strokeStyle = P.bad; cx.lineWidth = 3.5; cx.stroke(); cx.globalAlpha = 1; }
   const far = CAM.dist < 860 ? 620 : 1e9;
   for (const s of ST[z]) { if (s.k === 'table') continue; const ti = taskAt(z, s.id), inc = incAt(z, s.id); if (!(ti >= 0 || inc) && proj(labelPt(s))[2] > far) continue; const at = label(HOMEP && s === HOMEP.st ? '내 자리 · ' + s.n : s.n, labelPt(s), ti >= 0 || inc); if (at && (ti >= 0 || inc)) diamond(at[0], at[1] - 24 - 4 * Math.abs(Math.sin(t * 3)), inc ? P.bad : P.accent); }
+  if (z === 'office') boardText(t);
   if (ZONES[z].line) { const i = SHOPS.indexOf(z); label(i ? `${ZONES[SHOPS[i - 1]].n}에서 넘어옴` : '코일 입고', [86, 150, 48], false, true); label(i < 3 ? `${ZONES[SHOPS[i + 1]].n}으로 넘어감` : '출고장으로', [1062, 490, 48], false, true); }
   if (DOOR[z] && Math.hypot(S.px - DOOR[z].in[0], S.py - DOOR[z].in[1]) > 120) { const d = DOOR[z].in; label('출입구', [d[0], d[1], d[1] < 100 ? 54 : 70], false, true); }
   if (z === 'canteen') { label(`오늘의 메뉴 · ${menuOf()}`, [925, 0, 40], false, true); }
@@ -1536,7 +1717,8 @@ function updateNpcs(dtg) {
     else if (n.mode === 'guide') { n.dir = 's'; }
     else {
       const L = ZONES[n.z].line ? LN[SHOPS.indexOf(n.z)] : null; n.wait -= dtg;
-      if (n.j === 'mt' && L && L.stop > 0 && L.at) { if (n.disp !== L.at) { n.disp = L.at; const p = ipOf(STMAP[n.z][L.at]); n.path = findPath(n.z, n.x, n.y, p.x + 28, p.y); } follow(n, dtg * NWALK * 0.7); }
+      if (CAM.talk === n || n.face > UI.t) { n.wait = Math.max(n.wait, 4); }   // 대화 중에는 멈춰 서 있는다
+      else if (n.j === 'mt' && L && L.stop > 0 && L.at) { if (n.disp !== L.at) { n.disp = L.at; const p = ipOf(STMAP[n.z][L.at]); n.path = findPath(n.z, n.x, n.y, p.x + 28, p.y); } follow(n, dtg * NWALK * 0.7); }
       else {
         if (n.disp) { n.disp = null; n.path = findPath(n.z, n.x, n.y, n.hx, n.hy); }
         if (n.wait <= 0) { n.wait = rnd(8, 26); const p = snap(n.z, n.hx + rnd(-55, 55), n.hy + rnd(-26, 26)); if (los(n.z, n, p)) n.path = [p]; }
@@ -1561,6 +1743,7 @@ function update(dt) {
     let best = null, bd = 56;
     for (const s of ST[S.zone]) { const p = ipOf(s), d = Math.hypot(p.x - S.px, p.y - S.py); if (d < bd) { bd = d; best = { k: 'st', id: s.id }; } }
     for (const n of NP) if (n.z === S.zone) { const d = Math.hypot(n.x - S.px, n.y - S.py) - 10; if (d < bd) { bd = d; best = { k: 'npc', id: n.id }; } }
+    if (S.zone === 'office') { const d = Math.hypot(BOARD.sx - S.px, BOARD.sy - S.py) - 6; if (d < bd) { bd = d; best = { k: 'board' }; } }
     UI.near = best;
     if (UI.cardAt && Math.hypot(UI.cardAt.x - S.px, UI.cardAt.y - S.py) > 110) hideCard();
     if (S.zone === 'press' && LN[0].stop <= 0 && !S.lunch) { const b = Math.floor(UI.t * 2 / Math.PI); if (b !== UI.pressBeat) { UI.pressBeat = b; SFX.press(); const tn = STMAP.press.tandem; if (tn) { const dd = Math.hypot(tn.x - S.px, tn.y - S.py); if (dd < 360) shake(1.4 * (1 - dd / 360)); for (let i = 0; i < 4; i++) burst(tn.x - tn.w / 2 + 40 + i * (tn.w - 80) / 3, tn.y + tn.h / 2 + 4, 4, 3, mix(K.floor, -0.25), 0.5); } } }
@@ -1570,6 +1753,7 @@ function update(dt) {
   const pr = $('#prompt');
   if (S.work && UI.spark) { pr.hidden = false; pr.innerHTML = '<kbd>E</kbd> 지금! 뭔가 눈에 띈다'; }
   else if (S.work) { pr.hidden = false; pr.innerHTML = S.work.inc && S.inc ? `급한 연락 처리 중: ${INC[S.inc.id].t}` : S.work.inc ? '' : `업무 중: ${S.tasks[S.work.i].t} · 남은 시간 ${Math.ceil(S.tasks[S.work.i].left)}분 <span>빨리 감는 중 · 움직이면 중단</span>`; }
+  else if (UI.near && UI.near.k === 'board' && !UI.modal && !ME.mv) { pr.hidden = false; pr.innerHTML = '<kbd>E</kbd> 생산 현황판 자세히 보기'; }
   else if (UI.near && !UI.modal && !ME.mv && (UI.near.k === 'npc' || STMAP[S.zone][UI.near.id])) {
     const o = UI.near; let txt;
     if (o.k === 'st') { const s = STMAP[S.zone][o.id], ti = taskAt(S.zone, o.id); txt = s.k === 'bldg' ? `${s.n}으로 들어가기` : incAt(S.zone, o.id) ? `급한 연락 처리: ${INC[S.inc.id].t}` : ti >= 0 ? `업무 시작: ${S.tasks[ti].t}` : s.id === 'cafe' ? '15분 쉬기' : s.k === 'serve' && S.lunch && !S.ate && !S.tray ? '식판 받기' : s.k === 'table' ? '이 식탁에 앉기' : `${s.n} 살펴보기`; }
@@ -1579,9 +1763,96 @@ function update(dt) {
   UI.hudT -= dt; if (UI.hudT <= 0) { UI.hudT = 0.2; renderHud(); renderZones(); renderAndon(); renderAlerts(); renderPeers(); renderTasks(); renderUnd(); checkAch(); }
 }
 let last = 0;
+/* ---------- 작업 화면: 지금 하는 일을 단계와 그림으로 보여 준다 ---------- */
+function workSteps(t) {
+  if (t.w) return { v: t.v || 'inspect', st: t.w };
+  if (WKIND[t.kind]) return { v: WKIND[t.kind][0], st: WKIND[t.kind][1] };
+  for (const [re, v, st] of WTPL) if (re.test(t.t)) return { v, st };
+  return t.z === 'office' ? { v: 'doc', st: WTPL[1][2] } : { v: 'inspect', st: WTPL[8][2] };
+}
+const WVN = { watch: '작업 관측', doc: '문서 작업', sheet: '데이터 정리', inspect: '현장 점검', gauge: '측정', wrench: '정비', talk: '회의·협의', box: '자재 확인', screen: '시스템 작업', walk: '현장 동행' };
+function workInfo() {
+  if (!S || !S.work) return null;
+  if (S.work.inc) { const d = INC[S.inc && S.inc.id]; if (!d) return null; return { title: d.t, v: 'inspect', st: ['상황을 듣는다', '현장을 직접 확인한다', '조치하고 결과를 알린다'], pct: clamp(1 - S.work.left / 4, 0, 1), left: S.work.left, inc: 1 }; }
+  const t = S.tasks[S.work.i]; if (!t) return null; const w = t._w || (t._w = workSteps(t));
+  return { title: t.t, v: w.v, st: w.st, pct: clamp(1 - t.left / t.m, 0, 1), left: t.left, learn: t.learn };
+}
+let wcx = null;
+function workUI() {
+  const el = $('#work'); if (!el) return;
+  const wi = UI.started && !UI.modal ? workInfo() : null;
+  if (!wi) { if (!el.hidden) el.hidden = true; UI.wkey = null; return; }
+  const n = wi.st.length, cur = Math.min(n - 1, Math.floor(wi.pct * n)), key = wi.title + '|' + cur;
+  if (el.hidden) el.hidden = false;
+  if (UI.wkey !== key) {
+    if (UI.wkey && UI.wkey.split('|')[0] === wi.title) SFX.click();
+    UI.wkey = key;
+    el.innerHTML = `<canvas id="wcv" width="224" height="168" aria-hidden="true"></canvas><div class="wbody"><p class="wt"><span>${wi.inc ? '급한 연락 처리' : WVN[wi.v] || '작업'} 중</span><b>${esc(wi.title)}</b></p><ol>${wi.st.map((x, i) => `<li class="${i < cur ? 'done' : i === cur ? 'on' : ''}">${esc(x)}</li>`).join('')}</ol><div class="wbar"><i></i><small></small></div></div>`;
+    wcx = $('#wcv').getContext('2d');
+  }
+  const bar = el.querySelector('.wbar i'), sm = el.querySelector('.wbar small');
+  if (bar) bar.style.width = Math.round(wi.pct * 100) + '%';
+  if (sm) sm.textContent = `${Math.round(wi.pct * 100)}% · 남은 ${Math.max(0, Math.ceil(wi.left))}분${!wi.inc && !UI.spark ? ' · 빠르게 진행' : ''}`;
+  if (wcx) { wcx.setTransform(2, 0, 0, 2, 0, 0); drawViz(wcx, wi.v, UI.t, wi.pct, 112, 84); }
+}
+function drawViz(g, v, t, p, w, h) {
+  const ink = P.ink, mu = P.muted || P.ink, ac = P.accent, ok = P.ok, pn = P.panel2 || '#fff', ln = P.line || '#ccc';
+  g.clearRect(0, 0, w, h); g.fillStyle = P.panel || pn; g.fillRect(0, 0, w, h); g.lineWidth = 1.5; g.lineCap = 'round'; g.lineJoin = 'round';
+  const R = (x, y, ww, hh, f, st) => { g.beginPath(); g.roundRect ? g.roundRect(x, y, ww, hh, 3) : g.rect(x, y, ww, hh); if (f) { g.fillStyle = f; g.fill(); } if (st) { g.strokeStyle = st; g.stroke(); } };
+  const L = (x1, y1, x2, y2, c, lw = 1.5) => { g.strokeStyle = c; g.lineWidth = lw; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); };
+  const C = (x, y, r, f, st) => { g.beginPath(); g.arc(x, y, r, 0, 6.283); if (f) { g.fillStyle = f; g.fill(); } if (st) { g.strokeStyle = st; g.stroke(); } };
+  const chk = (x, y, c = ok) => { g.strokeStyle = c; g.lineWidth = 2; g.beginPath(); g.moveTo(x - 3, y); g.lineTo(x - 1, y + 2.5); g.lineTo(x + 3.5, y - 3); g.stroke(); };
+  if (v === 'watch') {   // 초시계와 요소 작업 막대
+    C(30, 44, 20, pn, ink); L(30, 22, 30, 18, ink, 3); const a = t * 3; L(30, 44, 30 + Math.sin(a) * 15, 44 - Math.cos(a) * 15, ac, 2); C(30, 44, 2, ink);
+    const bars = [0.55, 0.8, 0.45, 0.95, 0.6], k = Math.floor(p * bars.length * 1.2); L(60, 18, 104, 18, P.bad, 1); g.fillStyle = mu; g.font = '600 7px sans-serif'; g.fillText('택트', 62, 15);
+    bars.forEach((b, i) => { if (i <= k) R(62 + i * 9, 66 - 46 * b * (i === k ? (p * bars.length * 1.2) % 1 : 1), 6, 46 * b * (i === k ? (p * bars.length * 1.2) % 1 : 1), b > 0.9 ? P.bad : ac); });
+    L(60, 66, 106, 66, ink, 1);
+  } else if (v === 'doc') {   // 문서에 줄이 채워진다
+    R(26, 8, 60, 70, pn, ink); const lines = 9, k = p * lines; g.fillStyle = ink; g.fillRect(32, 14, 30, 3);
+    for (let i = 0; i < lines; i++) { const f = clamp(k - i, 0, 1); if (f > 0) L(32, 24 + i * 6, 32 + 46 * f * (i % 3 === 2 ? 0.6 : 1), 24 + i * 6, mu, 1.5); }
+    const li = Math.min(lines - 1, Math.floor(k)), px = 32 + 46 * clamp(k - li, 0, 1) * (li % 3 === 2 ? 0.6 : 1), py = 24 + li * 6;
+    g.save(); g.translate(px, py); g.rotate(-0.7); R(-1.5, -16, 3, 16, ac, ink); g.restore();
+  } else if (v === 'sheet') {   // 표와 막대그래프
+    for (let r = 0; r < 6; r++) for (let c = 0; c < 3; c++) R(8 + c * 15, 10 + r * 10, 14, 9, (r * 3 + c) / 18 < p ? (r === 0 ? ln : pn) : 'transparent', ln);
+    L(62, 70, 106, 70, ink, 1); L(62, 70, 62, 12, ink, 1); const bs = [0.4, 0.7, 0.5, 0.9, 0.3];
+    bs.forEach((b, i) => { const f = clamp(p * 6 - i - 0.5, 0, 1); R(66 + i * 8, 70 - 52 * b * f, 6, 52 * b * f, b > 0.85 ? P.bad : ac); });
+    if (p > 0.8) { C(66 + 3 * 8 + 3, 70 - 52 * 0.9 - 6, 6, null, P.bad); }
+  } else if (v === 'inspect') {   // 점검표와 돋보기
+    R(8, 8, 40, 68, pn, ink); for (let i = 0; i < 5; i++) { R(13, 16 + i * 12, 7, 7, null, mu); L(24, 19.5 + i * 12, 42, 19.5 + i * 12, mu, 1); if (i < p * 5) chk(16.5, 19.5 + i * 12); }
+    R(56, 20, 50, 34, ln, ink); for (let i = 0; i < 3; i++) C(66 + i * 15, 37, 3, mu);
+    const mx = 62 + ((Math.sin(t * 1.4) + 1) / 2) * 38, my = 37 + Math.sin(t * 2.3) * 6; C(mx, my, 9, 'rgba(255,255,255,.35)', ink); L(mx + 6, my + 6, mx + 13, my + 13, ink, 3);
+  } else if (v === 'gauge') {   // 계기 바늘
+    g.strokeStyle = ln; g.lineWidth = 6; g.beginPath(); g.arc(40, 52, 28, Math.PI, 2 * Math.PI); g.stroke(); g.strokeStyle = ok; g.beginPath(); g.arc(40, 52, 28, Math.PI * 1.35, Math.PI * 1.65); g.stroke();
+    const a = Math.PI * (1.5 + Math.sin(t * 2.2) * 0.12 + (0.5 - p) * 0.25); L(40, 52, 40 + Math.cos(a) * 24, 52 + Math.sin(a) * 24, ink, 2); C(40, 52, 3, ink);
+    g.fillStyle = ink; g.font = '700 11px ui-monospace, monospace'; g.textAlign = 'center'; g.fillText((10 + Math.sin(t * 2.2) * 0.4).toFixed(2), 40, 70); g.textAlign = 'left';
+    for (let i = 0; i < 4; i++) { L(80, 18 + i * 14, 104, 18 + i * 14, ln, 1); if (i < p * 4) { g.fillStyle = mu; g.font = '600 8px ui-monospace, monospace'; g.fillText((9.8 + i * 0.13).toFixed(2), 82, 16 + i * 14); chk(101, 13 + i * 14); } }
+  } else if (v === 'wrench') {   // 볼트를 조이는 렌치
+    g.save(); g.translate(44, 44); const a = Math.sin(t * 4) * 0.6; C(0, 0, 9, ln, ink); g.fillStyle = ink; for (let i = 0; i < 6; i++) { const b = i * 1.047 + a; g.fillRect(Math.cos(b) * 6 - 1, Math.sin(b) * 6 - 1, 2, 2); }
+    g.rotate(a - 0.6); R(6, -4, 40, 8, mu, ink); g.restore();
+    if (Math.sin(t * 4) > 0.8) for (let i = 0; i < 4; i++) L(44, 44, 44 + Math.cos(i * 1.6 + t) * 16, 44 + Math.sin(i * 1.6 + t) * 16, ac, 1);
+    R(80, 12, 26, 60, pn, ln); for (let i = 0; i < 4; i++) { R(84, 18 + i * 13, 18, 8, i < p * 4 ? ok : ln); }
+  } else if (v === 'talk') {   // 오가는 말풍선
+    const ppl = [[20, 66], [56, 70], [92, 66]]; ppl.forEach(([x, y], i) => { C(x, y - 14, 6, [P.pri, ac, mu][i]); R(x - 8, y - 6, 16, 10, [P.pri, ac, mu][i]); });
+    const sp = Math.floor(t * 0.9) % 3; const [bx, by] = ppl[sp]; R(bx - 16, by - 50, 32, 20, pn, ink); for (let i = 0; i < 3; i++) C(bx - 8 + i * 8, by - 40, 2, Math.floor(t * 4) % 3 === i ? ac : mu);
+    g.beginPath(); g.moveTo(bx - 3, by - 30); g.lineTo(bx, by - 25); g.lineTo(bx + 3, by - 30); g.fillStyle = pn; g.fill();
+    R(8, 6, 26, 8, null, ln); g.fillStyle = ok; g.fillRect(9, 7, 24 * p, 6);
+  } else if (v === 'box') {   // 상자와 바코드 스캐너
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) { const i = r * 4 + c, x = 8 + c * 18, y = 54 - r * 18; R(x, y, 16, 16, i / 12 < p ? ln : pn, ink); if (i / 12 < p) chk(x + 8, y + 8); }
+    const sx = 8 + ((t * 30) % 72); L(sx, 4, sx, 72, P.bad, 1); R(84, 20, 22, 36, ink); R(88, 24, 14, 10, ac);
+    g.fillStyle = pn; g.font = '700 9px ui-monospace, monospace'; g.fillText(String(Math.floor(p * 120)).padStart(3, '0'), 86, 50);
+  } else if (v === 'screen') {   // 모니터 위 그래프와 코드
+    R(8, 6, 96, 60, '#0f1a24', ink); L(56, 66, 56, 74, ink, 3); L(40, 76, 72, 76, ink, 3);
+    g.strokeStyle = '#7DDBAE'; g.lineWidth = 1.5; g.beginPath(); for (let x = 0; x < 44; x++) { const y = 36 + Math.sin(x * 0.4 + t * 3) * 8 * (1 - p * 0.7); x ? g.lineTo(12 + x, y) : g.moveTo(12, y); } g.stroke();
+    for (let i = 0; i < 6; i++) { const f = clamp(p * 7 - i, 0, 1); if (f > 0) L(62, 14 + i * 8, 62 + 36 * f * (i % 2 ? 0.7 : 1), 14 + i * 8, i === 5 ? '#F0C24B' : '#8FA0B1', 1.5); }
+  } else {   // walk: 발자국과 확인 지점
+    const pts = [[12, 64], [38, 30], [66, 54], [100, 20]]; g.setLineDash([3, 4]); g.strokeStyle = ln; g.lineWidth = 2; g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.stroke(); g.setLineDash([]);
+    pts.forEach(([x, y], i) => { C(x, y, 6, i / (pts.length - 1) <= p ? ok : pn, ink); });
+    const seg = Math.min(pts.length - 2, Math.floor(p * (pts.length - 1))), f = p * (pts.length - 1) - seg, a = pts[seg], b = pts[seg + 1]; C(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f - 6 + Math.abs(Math.sin(t * 6)) * -3, 4, ac, ink);
+  }
+}
 function frame(ts) {
   const dt = Math.min(0.1, (ts - last) / 1000 || 0); last = ts;
-  if (UI.started && S) { qTick(ts - (frame.p || ts)); update(dt); draw(); } else drawTitle(dt);
+  if (UI.started && S) { qTick(ts - (frame.p || ts)); update(dt); draw(); workUI(); } else drawTitle(dt);
   frame.p = ts;
   requestAnimationFrame(frame);
 }
@@ -1608,10 +1879,69 @@ function drawTitle(dt) {
   if (lcv.width !== 192) { lcv.width = 192; lcv.height = 192; }
   previewPerson(lcx, UI.lookArr, tT);
 }
+/* ---------- 첫 화면: 메뉴 · 입사 · 옵션 · 퇴사 ---------- */
+function readSave() { try { const s = JSON.parse(localStorage.getItem(SAVE)); return s && JOBS[s.job] && s.peers && s.ach && s.notes ? s : null; } catch (e) { return null; } }
+function tShow(id, step) {
+  for (const p of ['tMenu', 'tJoin', 'tOpt', 'tQuit']) $('#' + p).hidden = p !== id;
+  if (id === 'tMenu') { const sv = readSave(); $('#bCont').hidden = !sv; if (sv) $('#contInfo').textContent = `${sv.name} · ${CODEX[sv.job].n} · ${Math.min(sv.day, DAYS)}일차부터`; }
+  if (id === 'tJoin') joinStep(step || 1);
+  if (id === 'tOpt') optRender();
+  if (id === 'tQuit') { $('#quitAsk').hidden = false; $('#quitDone').hidden = true; }
+  $('#title').scrollTop = 0;
+  const f = $('#' + id).querySelector(id === 'tMenu' ? '.mainmenu button:not([hidden])' : 'button'); if (f) setTimeout(() => f.focus({ preventScroll: true }), 0);
+}
+function joinStep(n) {
+  document.querySelectorAll('#tJoin [data-step]').forEach(el => el.hidden = +el.dataset.step !== n);
+  document.querySelectorAll('#tJoin .steps li').forEach(li => li.classList.toggle('on', +li.dataset.sn === n));
+  if (n === 2) { $('#jobPicked').textContent = `${CODEX[UI.selJob].n}로 입사`; renderCz(); }
+}
+function optRender() {
+  const on = (k, v) => document.querySelectorAll(`.seg[data-opt="${k}"] button`).forEach(b => b.setAttribute('aria-pressed', b.dataset.v === v));
+  on('q', Q.mode); on('fp', CAM.fp ? '1' : '0'); on('snd', AU.muted ? '0' : '1'); on('mm', MS.mode);
+  document.querySelectorAll('.sensIn').forEach(i => { i.value = MS.sens; }); document.querySelectorAll('.sensV').forEach(b => { b.textContent = MS.sens; });
+  if (!$('#bOWipe')) return;
+  const sv = readSave(); $('#bOWipe').disabled = !sv; $('#bOWipe').textContent = '지우기'; UI.wipeArm = false; $('#wipeInfo').textContent = sv ? `${sv.name} · ${CODEX[sv.job].n} · ${Math.min(sv.day, DAYS)}일차 기록이 있습니다.` : '저장된 기록이 없습니다.';
+}
+function optSet(k, v) {
+  if (k === 'q') { Q.mode = v; Q.lv = v === 'low' ? 0 : v === 'mid' ? 1 : 2; Q.bad = 0; Q.ms = 16; try { localStorage.setItem('fdu-q', v); } catch (e) {} resize(); qLabel(); }
+  if (k === 'fp') { CAM.fp = v === '1'; CAM.pitch = CAM.fp ? 0.06 : 0.42; try { localStorage.setItem('fdu-fp', v); } catch (e) {} const b = $('#zFp'); if (b) b.setAttribute('aria-pressed', CAM.fp); }
+  if (k === 'mm') { MS.mode = v; try { localStorage.setItem('fdu-mouse', v); } catch (e) {} if (v === 'drag') unlockMouse(); }
+  if (k === 'sens') { MS.sens = clamp(Math.round(+v) || 5, 1, 10); try { localStorage.setItem('fdu-sens', MS.sens); } catch (e) {} }
+  if (k === 'snd') { const want = v === '0'; if (AU.muted !== want) { initAudio(); toggleMute(); } try { localStorage.setItem('fdu-mute', want ? '1' : '0'); } catch (e) {} }
+  if (k !== 'sens') SFX.click(); optRender();
+}
+/* 게임 중 옵션 창 (O) */
+function openOptG() {
+  if (!S || (UI.modal && !UI.modal.opts)) return;
+  const seg = (k, cur, items) => `<div class="seg">${items.map(([v, n]) => `<button type="button" data-act="o:${k}:${v}" aria-pressed="${v === cur}">${n}</button>`).join('')}</div>`;
+  openModal(`<p class="eyebrow">옵션</p><h2>설정</h2><div class="opts">
+    <div><span>마우스 시점</span>${seg('mm', MS.mode, [['follow', '마우스 따라가기'], ['drag', '끌어서 돌리기']])}<small>따라가기: 화면을 클릭하면 마우스를 움직이는 대로 시선이 돕니다. Esc로 풀립니다.</small></div>
+    <div><span>민감도</span><div class="sens"><input type="range" class="sensIn" min="1" max="10" step="1" value="${MS.sens}" aria-label="마우스 민감도"><b class="sensV">${MS.sens}</b></div><small>시점이 도는 빠르기 (1~10)</small></div>
+    <div><span>시점</span>${seg('fp', CAM.fp ? '1' : '0', [['0', '3인칭'], ['1', '1인칭']])}<small>P 키로도 바꿉니다.</small></div>
+    <div><span>화질</span>${seg('q', Q.mode, [['auto', '자동'], ['high', '높음'], ['mid', '중간'], ['low', '낮음']])}<small>끊기면 낮춰 보세요.</small></div>
+    <div><span>소리</span>${seg('snd', AU.muted ? '0' : '1', [['1', '켜기'], ['0', '끄기']])}<small>M 키로도 바꿉니다.</small></div>
+  </div><div class="acts"><button class="btn pri" data-act="x" data-primary>닫기</button></div>`, { esc: true, opts: 1, on(a) {
+    if (a === 'x') { closeModal(); return; }
+    const [, k, v] = a.split(':'); optSet(k, v); if (k === 'fp') setFp(CAM.fp); openOptG();
+  } });
+}
+document.addEventListener('input', e => { if (e.target.matches && e.target.matches('.sensIn')) optSet('sens', e.target.value); });
+function openAbout() {
+  openModal(`<p class="eyebrow">게임 소개</p><h2>입사하면 무슨 일을 하게 될까</h2>
+    <p class="desc">직무를 하나 골라 열흘 동안 출근해 봅니다. 프레스, 차체, 도장, 의장 공장에서 차가 만들어지는 동안 맡은 업무를 처리하고, 터지는 사건마다 결정을 내립니다. 공장 사이는 걸어서 다니고, 12시에는 모두 구내식당에 모입니다. 급한 연락은 메신저로 오고, 다른 부서에 배치된 동기 셋이 함께합니다. 보고 들은 것은 지식 노트에 쌓이고, 퇴근길 퀴즈로 확인합니다.</p>
+    <p class="hint">공개된 채용 공고와 직무 소개를 바탕으로 재구성한 비공식 시뮬레이션입니다. 현대자동차가 만들거나 감수한 것이 아니며, 등장인물과 사건은 모두 지어낸 것입니다. 실제 조직과 업무는 사업장과 시기에 따라 다릅니다.</p>
+    <div class="acts"><button class="btn pri" data-act="x" data-primary>닫기</button></div>`, { esc: true, on() { closeModal(); } });
+}
+function quitGame() {
+  const sv = readSave();
+  $('#quitSum').textContent = sv ? `${sv.name} 님은 ${CODEX[sv.job].n}로 ${Math.max(1, Math.min(sv.day, DAYS + 1) - 1)}일을 일했고, 지식 노트 ${Object.keys(sv.notes).length}개와 동료 ${Object.keys(sv.met || {}).length}명을 남겼습니다. 기록은 남아 있으니 언제든 다시 출근할 수 있어요.` : '아직 첫 출근 전이었지만, 언제든 다시 입사할 수 있어요.';
+  $('#quitAsk').hidden = true; $('#quitDone').hidden = false; SFX.chime && SFX.chime();
+  if (AU.amb) try { setAmb(); } catch (e) {}
+  try { window.close(); } catch (e) {}   // 스크립트로 연 창이 아니면 브라우저가 무시한다
+}
 function showTitle() {
   UI.started = false; $('#title').hidden = false; $('#app').setAttribute('aria-hidden', 'true'); setAmb();
-  let has = false; try { has = !!localStorage.getItem(SAVE); } catch (e) {}
-  $('#bCont').hidden = !has; selectJob(UI.selJob || 'pe'); renderCz();
+  selectJob(UI.selJob || 'pe'); renderCz(); tShow('tMenu');
 }
 function selectJob(k) {
   UI.selJob = k; document.querySelectorAll('.job').forEach(b => b.setAttribute('aria-pressed', b.dataset.job === k));
@@ -1622,8 +1952,8 @@ function renderCz() {
   $('#cz').innerHTML = CZ.map((r, i) => `<div><span>${r[0]}</span><button type="button" data-cz="${i}:-1" aria-label="${r[0]} 이전">◀</button><b>${r[1][UI.lookArr[i]]}</b><button type="button" data-cz="${i}:1" aria-label="${r[0]} 다음">▶</button></div>`).join('');
 }
 function begin(state) {
-  initAudio(); S = state; { const h = HOMEJ[S.job] || HOMEJ.pe, p = snap('office', h[1], h[2]); HOMEP = { st: STMAP.office[h[0]], id: h[0], x: p.x, y: p.y, dx: h[1], dy: h[2] - 22 }; } prefill(); UI.started = true; $('#title').hidden = true; $('#app').removeAttribute('aria-hidden'); UI.flash = null; ME.path = null; ME.trip = null; resize();
-  if (state._mid) { delete state._mid; if (S.lunch) { S.lunch = false; S.ate = true; S.min = Math.max(S.min, 780); } S.inc = null; if (!GRID[S.zone]) S.zone = 'office'; renderAll(); } else startDay();
+  initAudio(); S = state; fixTwinState(S); UI.phase = null; { const h = HOMEJ[S.job] || HOMEJ.pe, p = snap('office', h[1], h[2]); HOMEP = { st: STMAP.office[h[0]], id: h[0], x: p.x, y: p.y, dx: h[1], dy: h[2] - 22 }; } prefill(); UI.started = true; $('#title').hidden = true; $('#app').removeAttribute('aria-hidden'); UI.flash = null; ME.path = null; ME.trip = null; resize();
+  if (state._mid) { delete state._mid; applyCT(S.ctDay); if (S.lunch) { S.lunch = false; S.ate = true; S.min = Math.max(S.min, 780); } S.inc = null; if (!GRID[S.zone]) S.zone = 'office'; renderAll(); } else startDay();
   setAmb();
 }
 
@@ -1641,7 +1971,7 @@ addEventListener('keydown', e => {
     else if (e.code === 'Enter' && !(document.activeElement && document.activeElement.closest('#dlg') && document.activeElement.tagName === 'BUTTON')) { const b = $('#dlg [data-primary]'); if (b) b.click(); }
     return;
   }
-  if (!UI.started) return;
+  if (!UI.started) { if (e.code === 'Escape' && !$('#title').hidden && $('#tMenu').hidden) { e.preventDefault(); if (!$('#tJoin').hidden && !$('#tJoin [data-step="2"]').hidden) joinStep(1); else tShow('tMenu'); } return; }
   if (KEYMAP[e.code]) { UI.keys[KEYMAP[e.code]] = true; e.preventDefault(); return; }
   const zi = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
   if (zi >= 0) { zoneCmd(DEST[zi]); return; }
@@ -1649,7 +1979,7 @@ addEventListener('keydown', e => {
     case 'KeyE': case 'Enter': if (UI.spark) takeSpark(); else if (!$('#card').hidden && !UI.near) hideCard(); else if (UI.near && !S.paused) interact(UI.near); e.preventDefault(); break;
     case 'Space': setSpeed(0); e.preventDefault(); break;
     case 'KeyZ': setSpeed(1); break; case 'KeyX': setSpeed(2); break; case 'KeyC': setSpeed(4); break; case 'KeyV': setSpeed(8); break;
-    case 'KeyQ': openMessenger(); break; case 'KeyN': openNotes(); break; case 'Equal': case 'NumpadAdd': zoomBy(1.25); break; case 'BracketLeft': case 'Comma': rotBy(-Math.PI / 8); break; case 'BracketRight': case 'Period': rotBy(Math.PI / 8); break; case 'Home': camReset(); break; case 'KeyP': setFp(!CAM.fp); break; case 'Minus': case 'NumpadSubtract': zoomBy(0.8); break; case 'KeyF': toggleAuto(); break; case 'KeyG': openAch(); break; case 'KeyT': nextTask(); break; case 'KeyR': goInc(); break; case 'KeyJ': openCodex(S.job); break; case 'KeyH': openHelp(); break; case 'KeyM': toggleMute(); break;
+    case 'KeyQ': openMessenger(); break; case 'KeyO': openOptG(); break; case 'KeyN': openNotes(); break; case 'KeyB': openBoard(); break; case 'Equal': case 'NumpadAdd': zoomBy(1.25); break; case 'BracketLeft': case 'Comma': rotBy(-Math.PI / 8); break; case 'BracketRight': case 'Period': rotBy(Math.PI / 8); break; case 'Home': camReset(); break; case 'KeyP': setFp(!CAM.fp); break; case 'Minus': case 'NumpadSubtract': zoomBy(0.8); break; case 'KeyF': toggleAuto(); break; case 'KeyG': openAch(); break; case 'KeyT': nextTask(); break; case 'KeyR': goInc(); break; case 'KeyJ': openCodex(S.job); break; case 'KeyH': openHelp(); break; case 'KeyM': toggleMute(); break;
     case 'Escape': hideCard(); break;
   }
 });
@@ -1657,13 +1987,27 @@ addEventListener('keyup', e => { if (KEYMAP[e.code]) UI.keys[KEYMAP[e.code]] = f
 addEventListener('blur', () => { UI.keys = {}; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && S && UI.started && !S.paused) { S.paused = true; renderHud(); setAmb(); } });
 let PD = null;
-cv.addEventListener('pointerdown', e => { if (!S || UI.modal) return; PD = { x: e.clientX, y: e.clientY, yaw: CAM.yaw, pitch: CAM.pitch, drag: false }; try { cv.setPointerCapture(e.pointerId); } catch (er) {} });
-cv.addEventListener('pointermove', e => { if (!PD) return; const dx = e.clientX - PD.x, dy = e.clientY - PD.y; if (!PD.drag && Math.hypot(dx, dy) > 6) { PD.drag = true; cv.classList.add('drag'); } if (PD.drag) { CAM.yaw = PD.yaw - dx * 0.008; CAM.pitch = clamp(PD.pitch + dy * 0.006, CAM.fp ? -0.55 : 0.12, CAM.fp ? 1.0 : 1.4); } });
+cv.addEventListener('pointerdown', e => { if (!S || UI.modal) return; if (UI.locked) { initAudio(); if (UI.spark) takeSpark(); else if (UI.near && !S.paused) interact(UI.near); else if (!$('#card').hidden) hideCard(); return; } PD = { x: e.clientX, y: e.clientY, yaw: CAM.yaw, pitch: CAM.pitch, drag: false }; try { cv.setPointerCapture(e.pointerId); } catch (er) {} });
+cv.addEventListener('pointermove', e => { if (!PD) return; const dx = e.clientX - PD.x, dy = e.clientY - PD.y; if (!PD.drag && Math.hypot(dx, dy) > 6) { PD.drag = true; cv.classList.add('drag'); } if (PD.drag) { const k = sensK(); CAM.yaw = PD.yaw + dx * 0.008 * k; /* 마우스를 오른쪽으로 끌면 시선도 오른쪽으로 */ CAM.pitch = pitchClamp(PD.pitch + dy * 0.006 * k); } });
 const pEnd = () => { PD = null; cv.classList.remove('drag'); };
+/* 마우스 시점: 따라가기(화면 클릭 → 마우스 잠금) 또는 끌어서 돌리기, 민감도 1~10 */
+const MS = { mode: 'follow', sens: 5 };
+try { const m = localStorage.getItem('fdu-mouse'); if (m === 'drag' || m === 'follow') MS.mode = m; const v = +localStorage.getItem('fdu-sens'); if (v >= 1 && v <= 10) MS.sens = v; } catch (e) {}
+const sensK = () => 0.35 + MS.sens * 0.13;   // 1 → 0.48배, 5 → 1배, 10 → 1.65배
+const pitchClamp = p => clamp(p, CAM.fp ? -0.55 : 0.12, CAM.fp ? 1.0 : 1.4);
+function lockMouse() { if (MS.mode !== 'follow' || UI.lockFail || !cv.requestPointerLock || UI.locked) return false; try { const r = cv.requestPointerLock(); if (r && r.catch) r.catch(() => { if (!UI.lockedOnce) UI.lockFail = true; }); } catch (e) { UI.lockFail = true; return false; } return true; }
+function unlockMouse() { try { if (document.pointerLockElement) document.exitPointerLock(); } catch (e) {} }
+document.addEventListener('pointerlockchange', () => { UI.locked = document.pointerLockElement === cv; cv.classList.toggle('locked', UI.locked); if (UI.locked) UI.lockedOnce = true; });
+document.addEventListener('pointerlockerror', () => { if (UI.lockedOnce) return; UI.lockFail = true; toast('이 화면에서는 마우스 잠금을 쓸 수 없어 끌어서 돌리기로 바꿉니다'); });
+document.addEventListener('mousemove', e => {
+  if (!UI.locked || !S || UI.modal) return;
+  const k = sensK(); CAM.yaw += e.movementX * 0.0028 * k; CAM.pitch = pitchClamp(CAM.pitch + e.movementY * 0.0022 * k);
+});
 cv.addEventListener('pointercancel', pEnd);
 cv.addEventListener('pointerup', e => {
-  const pd = PD; pEnd(); if (!pd || pd.drag || !S || UI.modal) return;
+  const pd = PD; pEnd(); if (!pd || pd.drag || !S || UI.modal || UI.locked) return;
   initAudio(); if (S.paused) { S.paused = false; renderHud(); }
+  if (MS.mode === 'follow' && !UI.lockFail) { if (lockMouse()) return; }   // 따라가기 모드: 클릭하면 마우스를 잠그고, 잠긴 동안 클릭은 E와 같다
   if (UI.spark) { takeSpark(); return; }
   const r = cv.getBoundingClientRect(), X = e.clientX - r.left, Y = e.clientY - r.top, z = S.zone;
   let best = null, bd = 1e9;
@@ -1687,6 +2031,18 @@ document.addEventListener('click', e => {
   else if (t.dataset.close != null) hideCard();
   else if (t.dataset.job) { SFX.click(); selectJob(t.dataset.job); }
   else if (t.dataset.cz) { const [i, d] = t.dataset.cz.split(':').map(Number), n = CZ[i][1].length; UI.lookArr[i] = (UI.lookArr[i] + d + n) % n; SFX.click(); renderCz(); }
+  else if (t.id === 'bJoin') { SFX.click(); tShow('tJoin', 1); }
+  else if (t.id === 'bOpt') { SFX.click(); tShow('tOpt'); }
+  else if (t.id === 'bQuit') { SFX.click(); tShow('tQuit'); }
+  else if (t.id === 'bRejoin') tShow('tMenu');
+  else if (t.id === 'bQuitYes') quitGame();
+  else if (t.id === 'bJNext') { SFX.click(); joinStep(2); }
+  else if (t.id === 'bJPrev') joinStep(1);
+  else if (t.id === 'bOHelp') openHelp();
+  else if (t.id === 'bOAbout') openAbout();
+  else if (t.id === 'bOWipe') { if (!UI.wipeArm) { UI.wipeArm = true; t.textContent = '한 번 더 누르면 지워집니다'; } else { try { localStorage.removeItem(SAVE); } catch (e) {} optRender(); $('#wipeInfo').textContent = '기록을 지웠습니다.'; } }
+  else if (t.matches('[data-tback]')) tShow('tMenu');
+  else if (t.closest('.seg[data-opt]') && t.dataset.v) optSet(t.closest('.seg').dataset.opt, t.dataset.v);
   else if (t.id === 'bRand') { UI.lookArr = CZ.map(r => Math.floor(Math.random() * r[1].length)); renderCz(); }
   else if (t.dataset.th) openMessenger(t.dataset.th);
   else if (t.id === 'bMsg' || t.id === 'bMsg2') openMessenger();
@@ -1698,7 +2054,9 @@ document.addEventListener('click', e => {
   else if (t.id === 'zIn') zoomBy(1.25);
   else if (t.id === 'zOut') zoomBy(0.8);
   else if (t.id === 'bNotes' || t.id === 'bNotes2') openNotes();
+  else if (t.id === 'bBoard' || t.id === 'bBoard2') openBoard();
   else if (t.id === 'bQual') qCycle();
+  else if (t.id === 'bOptG') openOptG();
   else if (t.id === 'bAuto') toggleAuto();
   else if (t.id === 'bAch') openAch();
   else if (t.id === 'bCodex') openCodex(S && S.job);
@@ -1706,25 +2064,28 @@ document.addEventListener('click', e => {
   else if (t.id === 'bMute') { initAudio(); toggleMute(); }
   else if (t.id === 'bNext') nextTask();
   else if (t.id === 'bStart') { const name = ($('#fName').value || '').trim().slice(0, 12) || '신입'; begin(newState(name, UI.selJob, UI.lookArr.slice())); }
-  else if (t.id === 'bCont') { try { const s = JSON.parse(localStorage.getItem(SAVE)); if (s && JOBS[s.job] && s.peers && s.ach && s.notes) begin(s); } catch (err) { toast('저장된 기록을 읽지 못했습니다.'); } }
+  else if (t.id === 'bCont') { const s = readSave(); if (s) begin(s); else tShow('tMenu'); }
 });
 $('#startForm').addEventListener('submit', e => e.preventDefault());
 
 /* ---------- 시작 ---------- */
 $('#jobs').innerHTML = JOBKEYS.map(k => `<button type="button" class="job" data-job="${k}" aria-pressed="false"><small>${CODEX[k].div}</small><b>${CODEX[k].n}</b></button>`).join('');
-readPalette(); resize(); qLabel(); if ($('#zFp')) $('#zFp').setAttribute('aria-pressed', CAM.fp);
+readPalette(); resize(); qLabel(); if ($('#zFp')) $('#zFp').setAttribute('aria-pressed', CAM.fp); if (AU.muted) { $('#bMute').setAttribute('aria-pressed', true); $('#bMute').firstChild.textContent = '소리 꺼짐 '; }
 new ResizeObserver(resize).observe(cv);
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readPalette);
 new MutationObserver(readPalette).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(readPalette);
 const hot = window.claude && window.claude.hot;
 try { if (hot && hot.snapshot) hot.snapshot(() => (UI.started && S ? { S: { ...S, _mid: 1, work: null } } : {})); } catch (e) {}
-const boot = d => { if (d && d.S && JOBS[d.S.job] && d.S.peers && d.S.ach && d.S.notes && Array.isArray(d.S.look)) { try { begin(d.S); return; } catch (e) {} } showTitle(); };
-/* ---------- 디지털 트윈 연결 훅 ----------
-   포트폴리오의 실시간 대시보드가 이 객체로 공장 상태(라인·버퍼·생산·비가동)를 읽는다.
-   읽기 전용이다. 게임을 업데이트할 때 이 블록은 지우지 말 것. */
-window.TWIN = { v: 1, get S() { return S; }, get LN() { return LN; }, lineState, uptime, SHOPS, ZONES, STMAP,
-  consts: { V, GAP, BUF, TARGET, DAYS, get PLEN() { return PLEN; } } };
+const DEMO = QS.get('demo') === '1';
+const boot = d => {
+  if (DEMO) { try { const st = newState('신입', 'pc', [1, 0, 0, 0, 1]); st.demo = 1; st.tourSkip = true; begin(st); S.speed = 4; renderHud(); setAmb(); return; } catch (e) {} }   // ?demo=1: 생산관리 신입으로 바로 출근, 4배속
+  if (d && d.S && JOBS[d.S.job] && d.S.peers && d.S.ach && d.S.notes && Array.isArray(d.S.look)) { try { begin(d.S); return; } catch (e) {} } showTitle(); };
 if (hot && hot.ready) hot.ready(boot); else boot((hot && hot.data) || {});
+setInterval(twSnapshot, 500);
+// 대시보드 연결 훅 (읽기 전용). 지우면 포트폴리오 대시보드 연결이 끊긴다
+window.TWIN = { v: 2, get S() { return S; }, get LN() { return LN; }, lineState, uptime, SHOPS, ZONES, STMAP,
+  consts: { V, GAP, BUF, TARGET, DAYS, get PLEN() { return PLEN; }, get ct() { return { ...CT }; }, get ct0() { return { ...CT0 }; }, get ctDay() { return S && S.ctDay ? S.ctDay : null; } },
+  get history() { return S ? S.prodHist : []; }, channel: TWCH };
 requestAnimationFrame(frame);
 })();

@@ -208,6 +208,44 @@ ol, ul { list-style: none; }
 .vn.lit { color: var(--ink); border-color: var(--ok); box-shadow: inset 0 -3px 0 var(--ok); } .vn.on { outline: 2px solid var(--accent); } .vn i { font-style: normal; color: var(--ok); margin-left: 4px; }
 .vdet { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; display: grid; gap: 4px; } .vdet p { margin: 0; font-size: 13px; }
 #tasks li.opt { border-style: dashed; }
+.tiles.kpi { grid-template-columns: 1.6fr repeat(4, minmax(0, 1fr)); }
+.tiles.kpi div.ok { box-shadow: inset 0 -3px 0 var(--ok); } .tiles.kpi div.warn { box-shadow: inset 0 -3px 0 var(--warn); } .tiles.kpi div.bad { box-shadow: inset 0 -3px 0 var(--bad); }
+.pbar { position: relative; display: block; height: 8px; background: var(--line); border-radius: 4px; margin-top: 4px; }
+.pbar b { display: block; height: 100%; background: var(--ok); border-radius: 4px; } .pbar em { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--ink); }
+.lines { display: grid; gap: 4px; }
+.lines > div { display: grid; grid-template-columns: 12px 48px 64px 1fr auto auto; gap: 8px; align-items: center; background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.lines small { font: 600 11px var(--f-data); color: var(--muted); } .lines em { font-style: normal; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .lines span:last-child, .lines .buf { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lines .lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); }
+.bchart { width: 100%; max-width: 560px; height: auto; display: block; }
+.bchart .gl { stroke: var(--line); } .bchart .ax { fill: var(--muted); font: 11px var(--f-data); } .bchart .vl { fill: var(--ink); font: 600 11px var(--f-data); }
+.bchart .hit { fill: var(--ok); } .bchart .miss { fill: var(--bad); } .bchart .now { fill: var(--accent); } .bchart .tg { stroke: var(--ink); stroke-width: 2; stroke-dasharray: 3 2; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin: 0; align-items: center; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; } .legend i.hit { background: var(--ok); } .legend i.miss { background: var(--bad); } .legend i.now { background: var(--accent); } .legend i.tg { height: 0; border-top: 2px dashed var(--ink); border-radius: 0; }
+.tbl { overflow-x: auto; } .tbl table { width: 100%; border-collapse: collapse; font-size: 12.5px; } .tbl th, .tbl td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; } .tbl th { font-size: 11px; color: var(--muted); font-weight: 700; }
+.tbl td:first-child, .tbl td:nth-child(2) { font-family: var(--f-data); }
+.tag.bad { background: var(--bad); color: #fff; }
+@media (max-width: 720px) { .tiles.kpi { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tiles.kpi div:first-child { grid-column: 1 / -1; } .lines > div { grid-template-columns: 12px 48px 1fr; } .lines > div > small, .lines .buf { display: none; } .lines span:last-child { grid-column: 2 / -1; } }
+#work { position: absolute; left: 50%; top: 12px; translate: -50% 0; width: min(380px, calc(100% - 24px)); display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 10px; align-items: start; background: var(--panel2); border: 1px solid var(--line); border-top: 4px solid var(--accent); border-radius: 10px; padding: 10px; box-shadow: 0 8px 22px rgba(0, 0, 0, .18); pointer-events: none; }
+#wcv { width: 112px; height: 84px; border-radius: 6px; display: block; }
+#work .wbody { display: grid; gap: 5px; min-width: 0; }
+#work .wt { display: grid; gap: 1px; margin: 0; } #work .wt span { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; } #work .wt b { font-size: 14px; line-height: 1.25; }
+#work ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 12px; counter-reset: ws; }
+#work li { counter-increment: ws; color: var(--muted); display: grid; grid-template-columns: 16px 1fr; gap: 4px; }
+#work li::before { content: counter(ws); font: 600 10px/16px var(--f-data); text-align: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--line); }
+#work li.done { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); } #work li.done::before { content: "✓"; background: var(--ok); border-color: var(--ok); color: #fff; }
+#work li.on { color: var(--ink); font-weight: 700; } #work li.on::before { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+#work .wbar { display: grid; gap: 2px; } #work .wbar::before { content: ""; grid-area: 1 / 1; height: 6px; border-radius: 3px; background: var(--line); } #work .wbar i { grid-area: 1 / 1; height: 6px; border-radius: 3px; background: var(--ok); transition: width .3s; } #work .wbar small { font: 600 11px var(--f-data); color: var(--muted); }
+@media (max-width: 560px), (max-height: 620px) and (orientation: landscape) { #work { grid-template-columns: 80px minmax(0, 1fr); padding: 7px; top: 8px; } #wcv { width: 80px; height: 60px; } #work li:not(.on) { display: none; } }
+.sens { display: flex; align-items: center; gap: 10px; min-width: 0; } .sens input { width: 180px; max-width: 100%; accent-color: var(--accent); } .sens b { font: 600 15px var(--f-data); min-width: 2ch; }
+.dlg .opts { max-width: none; }
+#cv.locked { cursor: none; }
+.ctday { border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); padding: 8px 12px; display: grid; gap: 3px; }
+.ctday > small { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .04em; }
+.ctday > div { display: grid; grid-template-columns: 44px 44px 46px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 13px; }
+.ctday em { font: 600 14px var(--f-data); font-style: normal; } .ctday span { font: 600 12px var(--f-data); color: var(--muted); } .ctday span.up { color: var(--bad); } .ctday span.dn { color: var(--ok); }
+.ctday i { font-style: normal; font-size: 12px; color: var(--muted); min-width: 0; } .ctday .bn b, .ctday .bn em { color: var(--accent-ink, var(--ink)); } .ctday .bn { background: color-mix(in srgb, var(--accent) 18%, transparent); border-radius: 6px; margin: 0 -6px; padding: 1px 6px; }
+.ctday p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+#andon .wide { grid-column: 1 / -1; }
 .recap { display: grid; gap: 6px; }
 .recap li { display: grid; padding-left: 10px; border-left: 3px solid var(--line); }
 .recap.plain li { grid-template-columns: 110px 1fr; gap: 8px; border: 0; padding: 0; }
@@ -229,7 +267,33 @@ dt { font-weight: 700; color: var(--muted); white-space: nowrap; }
 .tin h1 small { display: block; font: 600 15px/1.4 var(--f-body); letter-spacing: 0; color: var(--muted); margin-top: 10px; }
 #strip { width: 100%; height: 72px; display: block; }
 .lead { font-size: 16px; max-width: 60ch; }
-.pickgrid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.tin:has(#tMenu:not([hidden])) { min-height: 100%; align-content: center; }
+.mainmenu { display: grid; gap: 8px; max-width: 360px; }
+.mainmenu button { display: grid; text-align: left; gap: 1px; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 12px 18px; color: var(--ink); transition: transform .12s, border-color .12s; }
+.mainmenu button b { font: 400 26px/1.15 var(--f-display); }
+.mainmenu button small { font-size: 12px; color: var(--muted); }
+.mainmenu button:hover, .mainmenu button:focus-visible { border-color: var(--ink); transform: translateX(4px); box-shadow: inset 4px 0 0 var(--accent); }
+.mainmenu button.pri { background: var(--pri); border-color: var(--pri); color: var(--on-pri); } .mainmenu button.pri small { color: var(--on-pri); opacity: .75; }
+.thead { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+.steps { display: flex; gap: 6px; list-style: none; margin: 0; padding: 0; font-size: 13px; font-weight: 600; color: var(--muted); counter-reset: st; }
+.steps li { counter-increment: st; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+.steps li::before { content: counter(st) " "; font-family: var(--f-data); }
+.steps li.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.th { font: 400 clamp(28px, 5vw, 40px)/1.1 var(--f-display); margin: 4px 0 12px; } .th.big { font-size: clamp(36px, 7vw, 60px); }
+.tpanel [data-step] { display: grid; gap: 14px; } .tpanel [data-step][hidden] { display: none; }
+.tfoot { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; justify-content: flex-end; }
+.tfoot .btn { padding: 10px 20px; } .tfoot label { display: grid; gap: 3px; font-size: 12px; font-weight: 600; color: var(--muted); margin-right: auto; }
+.tfoot input { font: inherit; color: var(--ink); background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; width: 200px; max-width: 100%; }
+#jobPicked { font-size: 13px; color: var(--muted); align-self: center; }
+.opts { display: grid; gap: 6px; max-width: 640px; }
+.opts > div { display: grid; grid-template-columns: 96px auto 1fr; gap: 6px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.opts > div > span { font-weight: 700; } .opts small { font-size: 12px; color: var(--muted); }
+.seg { justify-self: start; display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { border: 0; background: var(--panel2); padding: 7px 14px; font-weight: 600; font-size: 13px; color: var(--ink); } .seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.tquit { min-height: 70vh; display: grid; align-content: center; } .tquit > div { display: grid; gap: 8px; max-width: 560px; } .tquit .tfoot { justify-content: flex-start; }
+@media (max-width: 560px) { .opts > div { grid-template-columns: 1fr; } .mainmenu { max-width: none; } }
+.pickgrid {: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
 #jobs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
 .job { text-align: left; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 9px 12px; display: grid; }
 .job small { font-size: 11px; color: var(--muted); } .job b { font-weight: 700; }
@@ -254,6 +318,36 @@ dt { font-weight: 700; color: var(--muted); white-space: nowrap; }
   .msgr { grid-template-columns: minmax(0, 1fr); } .ths { grid-auto-flow: column; grid-auto-columns: 150px; overflow-x: auto; max-height: none; }
   #log { max-height: 160px; }
 }
+/* ---------- 화면 비율 맞추기: 넓은 화면은 한 화면에 꽉 차게, 세로 화면은 게임 화면을 먼저 ---------- */
+@media (min-width: 981px), (orientation: landscape) and (min-width: 640px) {
+  html, body { overflow: hidden; }
+  #app { height: 100vh; height: 100dvh; min-height: 0; }
+  .layout { min-height: 0; grid-template-columns: minmax(0, 1fr) clamp(250px, 24vw, 360px); }
+  .stageWrap { min-height: 0; }
+  .stage { flex: 1 1 auto; min-height: 0; }
+  .scroll { height: 100%; }
+  #cv { aspect-ratio: auto; height: 100%; }
+  .side { overflow-y: auto; min-height: 0; overscroll-behavior: contain; scrollbar-width: thin; }
+  .blurb { flex: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* 높이가 낮은 화면(노트북 작은 창, 가로로 든 휴대폰): 위쪽 막대를 줄여 게임 화면을 키운다 */
+@media (orientation: landscape) and (max-height: 620px) and (min-width: 640px) {
+  #app { gap: 6px; padding-block: 6px; }
+  .hud { gap: 4px 10px; }
+  .brand span, .tools kbd, .speed kbd, .blurb, .clock b { display: none; } .brand b { font-size: 20px; } .clock span { font-size: 20px; }
+  .speed button { padding: 5px 7px; min-width: 32px; }
+  .stats { grid-template-columns: repeat(4, minmax(48px, 1fr)); gap: 6px; flex: 1 1 220px; }
+  .tools { flex: 1 1 100%; } .tools .btn { white-space: nowrap; padding: 3px 8px; }
+  .zoom { right: 8px; bottom: 8px; gap: 3px; } .zoom button { width: 28px; height: 28px; font-size: 15px; } .zoom #zFp { font-size: 10px !important; white-space: nowrap; padding: 0; }
+  #prompt { left: 8px; bottom: 8px; padding: 5px 10px; font-size: 13px; }
+  .dlg { padding: 14px 16px; }
+  .zones { gap: 4px; } .zones button { grid-template-columns: 1fr; padding: 4px 6px; } .zones button kbd, .zones .zs { display: none; }
+  .side { gap: 8px; } .side section { padding: 8px 10px; }
+  .tools { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+}
+@media (max-width: 980px) and (orientation: portrait), (max-width: 639px) {
+  #cv { aspect-ratio: auto; height: min(64vh, 125vw); height: min(64dvh, 125vw); }
+}
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 
@@ -276,11 +370,13 @@ dt { font-weight: 700; color: var(--muted); white-space: nowrap; }
     </div>
     <div class="tools">
       <button class="btn sm" id="bMsg">메신저 <kbd>Q</kbd><i class="ub" id="msgUb" hidden></i></button>
+      <button class="btn sm" id="bBoard">현황판 <kbd>B</kbd></button>
       <button class="btn sm" id="bNotes">노트 <kbd>N</kbd><i class="ub" id="noteUb" hidden></i></button>
       <button class="btn sm" id="bAuto" aria-pressed="false">자동 진행 <kbd>F</kbd></button>
       <button class="btn sm" id="bAch">업적 <span id="achN">0/14</span> <kbd>G</kbd></button>
       <button class="btn sm" id="bCodex">직무 도감 <kbd>J</kbd></button>
       <button class="btn sm" id="bHelp">도움말 <kbd>H</kbd></button>
+      <button class="btn sm" id="bOptG">옵션 <kbd>O</kbd></button>
       <button class="btn sm" id="bQual" title="화면이 끊기면 낮춰 보세요">화질 자동</button>
       <button class="btn sm" id="bMute" aria-pressed="false">소리 켜짐 <kbd>M</kbd></button>
     </div>
@@ -299,6 +395,7 @@ dt { font-weight: 700; color: var(--muted); white-space: nowrap; }
         <div class="scroll"><canvas id="gl" aria-hidden="true"></canvas><canvas id="cv" width="1200" height="640" aria-label="3D 공장 화면"></canvas></div>
         <div id="card" hidden></div>
         <div class="zoom"><button id="zRotL" aria-label="왼쪽으로 돌리기" title="왼쪽으로 돌리기 ([)">⟲</button><button id="zRotR" aria-label="오른쪽으로 돌리기" title="오른쪽으로 돌리기 (])">⟳</button><button id="zIn" aria-label="확대" title="확대 (+)">+</button><button id="zOut" aria-label="축소" title="축소 (−)">−</button><button id="zFp" aria-pressed="false" aria-label="1인칭과 3인칭 전환" title="1인칭 ↔ 3인칭 (P)" style="font-size:12px">1P</button><button id="zHome" aria-label="3인칭과 전체 보기 전환" title="3인칭 ↔ 전체 보기 (Home)">⌂</button></div>
+        <div id="work" hidden aria-live="polite"></div>
         <div id="alerts"></div>
         <div id="toast" class="toast" role="status"></div>
         <div id="prompt" hidden></div>
@@ -318,21 +415,64 @@ dt { font-weight: 700; color: var(--muted); white-space: nowrap; }
 
 <div id="title">
   <div class="tin">
-    <h1>첫 출근<small>현대자동차 울산공장 신입사원 시뮬레이션</small></h1>
-    <canvas id="strip" height="72" aria-hidden="true"></canvas>
-    <p class="lead">입사하면 무슨 일을 하게 될까. 직무를 하나 골라 열흘 동안 출근해 보세요. 프레스, 차체, 도장, 의장 공장에서 차가 만들어지는 동안, 맡은 업무를 처리하고 터지는 사건마다 결정을 내립니다. 공장 사이는 걸어서 다니고, 12시에는 모두 구내식당에 모입니다. 급한 연락은 메신저로 오고, 다른 부서에 배치된 동기 셋이 함께합니다.</p>
-    <div class="pickgrid">
-      <div id="jobs" role="group" aria-label="직무 선택"></div>
-      <div id="jobDetail"></div>
-    </div>
-    <div class="czwrap"><div class="czprev"><canvas id="lookCv" width="144" height="96" aria-label="내 캐릭터 미리 보기"></canvas><button type="button" class="btn sm" id="bRand">무작위</button></div><div id="cz" role="group" aria-label="캐릭터 꾸미기"></div></div>
-    <form class="startrow" id="startForm">
-      
-      <label for="fName">이름<input id="fName" maxlength="12" placeholder="신입" autocomplete="off"></label>
-      <button type="button" class="btn pri" id="bStart">입사하기</button>
-      <button type="button" class="btn" id="bCont" hidden>이어서 출근</button>
-    </form>
-    <p class="note">공개된 채용 공고와 직무 소개를 바탕으로 재구성한 비공식 시뮬레이션입니다. 현대자동차가 만들거나 감수한 것이 아니며, 등장인물과 사건은 모두 지어낸 것입니다. 실제 조직과 업무는 사업장과 시기에 따라 다릅니다.</p>
+    <section class="tpanel tmenu" id="tMenu">
+      <h1>첫 출근<small>현대자동차 울산공장 신입사원 시뮬레이션</small></h1>
+      <canvas id="strip" height="72" aria-hidden="true"></canvas>
+      <nav class="mainmenu" aria-label="시작 메뉴">
+        <button type="button" id="bCont" hidden><b>이어서 출근</b><small id="contInfo"></small></button>
+        <button type="button" id="bJoin" class="pri"><b>입사하기</b><small>직무 고르기 · 나 꾸미기</small></button>
+        <button type="button" id="bOpt"><b>옵션</b><small>화질 · 시점 · 소리 · 조작법</small></button>
+        <button type="button" id="bQuit"><b>퇴사하기</b><small>게임 끝내기</small></button>
+      </nav>
+      <p class="note">비공식 팬 시뮬레이션 · 현대자동차와 관계없음 · 인물과 사건은 지어낸 것</p>
+    </section>
+
+    <section class="tpanel" id="tJoin" hidden>
+      <header class="thead"><button type="button" class="btn sm" data-tback>← 처음으로</button><ol class="steps"><li data-sn="1">직무 고르기</li><li data-sn="2">나 꾸미기</li></ol></header>
+      <div data-step="1">
+        <h2 class="th">어느 부서로 갈까요?</h2>
+        <div class="pickgrid">
+          <div id="jobs" role="group" aria-label="직무 선택"></div>
+          <div id="jobDetail"></div>
+        </div>
+        <div class="tfoot"><button type="button" class="btn pri" id="bJNext">다음: 나 꾸미기 →</button></div>
+      </div>
+      <form data-step="2" id="startForm" hidden>
+        <h2 class="th">첫 출근 준비</h2>
+        <div class="czwrap"><div class="czprev"><canvas id="lookCv" width="144" height="96" aria-label="내 캐릭터 미리 보기"></canvas><button type="button" class="btn sm" id="bRand">무작위</button></div><div id="cz" role="group" aria-label="캐릭터 꾸미기"></div></div>
+        <div class="tfoot"><label for="fName">이름<input id="fName" maxlength="12" placeholder="신입" autocomplete="off"></label><span id="jobPicked"></span><button type="button" class="btn" id="bJPrev">← 직무 다시 고르기</button><button type="button" class="btn pri" id="bStart">첫 출근하기</button></div>
+      </form>
+    </section>
+
+    <section class="tpanel" id="tOpt" hidden>
+      <header class="thead"><button type="button" class="btn sm" data-tback>← 처음으로</button></header>
+      <h2 class="th">옵션</h2>
+      <div class="opts">
+        <div><span>화질</span><div class="seg" data-opt="q"><button type="button" data-v="auto">자동</button><button type="button" data-v="high">높음</button><button type="button" data-v="mid">중간</button><button type="button" data-v="low">낮음</button></div><small>끊기면 낮춰 보세요. 자동은 알아서 낮춥니다.</small></div>
+        <div><span>마우스 시점</span><div class="seg" data-opt="mm"><button type="button" data-v="follow">마우스 따라가기</button><button type="button" data-v="drag">끌어서 돌리기</button></div><small>따라가기: 게임 화면을 클릭하면 마우스를 움직이는 대로 시선이 돕니다. Esc로 풀립니다.</small></div>
+        <div><span>민감도</span><div class="sens"><input type="range" class="sensIn" min="1" max="10" step="1" value="5" aria-label="마우스 민감도"><b class="sensV">5</b></div><small>시점이 도는 빠르기 (1~10)</small></div>
+        <div><span>시점</span><div class="seg" data-opt="fp"><button type="button" data-v="0">3인칭</button><button type="button" data-v="1">1인칭</button></div><small>게임 중에는 P 키로 바꿉니다.</small></div>
+        <div><span>소리</span><div class="seg" data-opt="snd"><button type="button" data-v="1">켜기</button><button type="button" data-v="0">끄기</button></div><small>효과음과 공장 소음</small></div>
+        <div><span>조작법</span><div><button type="button" class="btn" id="bOHelp">단축키 보기</button></div><small>게임 중에는 H 키</small></div>
+        <div><span>게임 소개</span><div><button type="button" class="btn" id="bOAbout">읽어 보기</button></div><small>무엇을 하는 게임인지</small></div>
+        <div><span>저장 기록</span><div><button type="button" class="btn" id="bOWipe">지우기</button></div><small id="wipeInfo">이어하기 기록을 지웁니다.</small></div>
+      </div>
+    </section>
+
+    <section class="tpanel tquit" id="tQuit" hidden>
+      <div id="quitAsk">
+        <h2 class="th">정말 퇴사할까요?</h2>
+        <p>저장된 기록은 남아 있어서 나중에 이어서 출근할 수 있습니다.</p>
+        <div class="tfoot"><button type="button" class="btn" data-tback>아니요, 계속 다닐게요</button><button type="button" class="btn pri" id="bQuitYes">퇴사하기</button></div>
+      </div>
+      <div id="quitDone" hidden>
+        <p class="eyebrow">퇴사 처리 완료</p>
+        <h2 class="th big">그동안 수고 많으셨습니다</h2>
+        <p id="quitSum"></p>
+        <p class="note">이제 이 창을 닫아도 됩니다.</p>
+        <div class="tfoot"><button type="button" class="btn" id="bRejoin">다시 입사하기</button></div>
+      </div>
+    </section>
   </div>
 </div>
 
